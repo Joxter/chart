@@ -109,6 +109,14 @@ export function preprocessData(data: Record<string, number[]>): Record<string, n
   const dates = data.date;
   const length = dates.length;
 
+  const keysToRemove = ['curtailment_after_battery', 'redelivery_after_battery'];
+
+  Object.keys(data).forEach((key)=>{
+    if (keysToRemove.find(it => key.startsWith(it))) {
+      delete data[key];
+    }
+  })
+
   // Pre-allocate arrays for better performance
   const dayKeys: string[] = new Array(length);
   const weekKeys: string[] = new Array(length);

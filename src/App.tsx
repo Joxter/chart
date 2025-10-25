@@ -22,6 +22,7 @@ function App() {
   const [aggregation, setAggregation] = useState<AggregationPeriod>('week');
   const [selectedPeriodIndex, setSelectedPeriodIndex] = useState<number>(0);
   const [displayMode, setDisplayMode] = useState<'combined' | 'separate'>('combined');
+  const [allInOne, setAllInOne] = useState(false);
 
   // Fetch data on mount
   useEffect(() => {
@@ -103,6 +104,42 @@ function App() {
     console.log(`chartData: ${(performance.now() - startTime).toFixed(1)}ms`);
     return result;
   }, [periods, selectedPeriodIndex, selectedKeys]);
+
+  // Get combined data for all periods (for "all in one" mode)
+  const allPeriodsChartData = useMemo(() => {
+    if (periods.length === 0 || !allInOne || displayMode !== 'separate') {
+      return null;
+    }
+
+    const startTime = performance.now();
+    const selectedKeysArray = Array.from(selectedKeys);
+
+    // Find the maximum length across all periods
+    let maxLength = 0;
+    periods.forEach(period => {
+      maxLength = Math.max(maxLength, period.data.date.length);
+    });
+
+    // Create combined data structure with index as x-axis
+    const result = [];
+    for (let i = 0; i < maxLength; i++) {
+      const point: Record<string, number | null> = { index: i };
+
+      // For each period, add data for each key
+      periods.forEach((period, periodIndex) => {
+        const periodData = period.data;
+        selectedKeysArray.forEach(key => {
+          const dataKey = `${key}_p${periodIndex}`;
+          point[dataKey] = i < periodData.date.length ? periodData[key][i] : null;
+        });
+      });
+
+      result.push(point);
+    }
+
+    console.log(`allPeriodsChartData: ${(performance.now() - startTime).toFixed(1)}ms`);
+    return result;
+  }, [periods, selectedKeys, allInOne, displayMode]);
 
   const toggleKey = useCallback((key: string) => {
     setSelectedKeys(prev => {
@@ -187,6 +224,16 @@ function App() {
             />
             <span style={{ fontSize: '0.875rem' }}>Separate charts</span>
           </label>
+          {displayMode === 'separate' && aggregation !== 'none' && periods.length > 1 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <input
+                type="checkbox"
+                checked={allInOne}
+                onChange={(e) => setAllInOne(e.target.checked)}
+              />
+              <span style={{ fontSize: '0.875rem' }}>All in one</span>
+            </label>
+          )}
           {aggregation !== 'none' && periods.length > 1 && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button
@@ -228,7 +275,6 @@ function App() {
               </label>
             ))}
           </div>
-          <p>length: {chartData.length}</p>
         </div>
 
         {displayMode === 'combined' ? (
@@ -245,52 +291,82 @@ function App() {
                 labelFormatter={(value) => new Date(value).toLocaleString()}
               />
               <Legend />
-              {Array.from(selectedKeys).map((key) => (
-                <Line
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  stroke={COLORS[dataKeys.indexOf(key) % COLORS.length]}
-                  strokeWidth={1}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              ))}
+              {Array.from(selectedKeys).map((key) => {
+                return (
+                  <Line
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    stroke={COLORS[dataKeys.indexOf(key) % COLORS.length]}
+                    strokeWidth={1}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                );
+              })}
             </LineChart>
           </ResponsiveContainer>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {Array.from(selectedKeys).map((key) => (
-              <div key={key} style={{ display: 'flex', flexDirection: 'column' }}>
-                <p style={{
-                  color: COLORS[dataKeys.indexOf(key) % COLORS.length]
-                }}>
-                  {key}
-                </p>
-                <ResponsiveContainer width="100%" height={150}>
-                  <LineChart data={chartData} syncId="anyId" >
-                    <XAxis
-                      dataKey="date"
-                      tickFormatter={formatDate}
-                      scale="time"
-                      minTickGap={40}
-                    />
-                    <YAxis />
-                    <Tooltip
-                      labelFormatter={(value) => new Date(value).toLocaleString()}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey={key}
-                      stroke={COLORS[dataKeys.indexOf(key) % COLORS.length]}
-                      strokeWidth={1}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ))}
+            {Array.from(selectedKeys).map((key) => {
+              const useAllInOne = allInOne && allPeriodsChartData;
+              const data = useAllInOne ? allPeriodsChartData : chartData;
+              const xAxisKey = useAllInOne ? 'index' : 'date';
+
+              return (
+                <div key={key} style={{ display: 'flex', flexDirection: 'column' }}>
+                  <p style={{
+                    color: COLORS[dataKeys.indexOf(key) % COLORS.length]
+                  }}>
+                    {key}
+                  </p>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <LineChart data={data} syncId="anyId">
+                      <XAxis
+                        dataKey={xAxisKey}
+                        tickFormatter={useAllInOne ? undefined : formatDate}
+                        scale={useAllInOne ? 'auto' : 'time'}
+                        minTickGap={40}
+                      />
+                      <YAxis />
+                      {!useAllInOne && <Tooltip
+                        labelFormatter={useAllInOne
+                          ? (value) => `Index: ${value}`
+                          : (value) => new Date(value).toLocaleString()
+                        }
+                      />
+                      }
+                      {useAllInOne ? (
+                        // Render a line for each period with opacity
+                        periods.map((_, periodIndex) => (
+                          <Line
+                            key={`${key}_p${periodIndex}`}
+                            type="monotone"
+                            dataKey={`${key}_p${periodIndex}`}
+                            stroke={selectedPeriodIndex ===periodIndex ? COLORS[dataKeys.indexOf(key) % COLORS.length] : '#999'}
+                            strokeWidth={selectedPeriodIndex ===periodIndex ? 2 : 1}
+                            strokeOpacity={selectedPeriodIndex ===periodIndex ? 1 : Math.max(1 / (periods.length / 3), 0.05)}
+                            dot={false}
+                            style={{zIndex: selectedPeriodIndex ===periodIndex ? '20': '1'}}
+                            isAnimationActive={false}
+                            connectNulls={false}
+                          />
+                        ))
+                      ) : (
+                        <Line
+                          type="monotone"
+                          dataKey={key}
+                          stroke={COLORS[dataKeys.indexOf(key) % COLORS.length]}
+                          strokeWidth={1}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
