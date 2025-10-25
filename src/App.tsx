@@ -29,7 +29,10 @@ function splitByPeriod(
   period: AggregationPeriod,
   selectedKeys: string[]
 ): PeriodData[] {
+  const startTime = performance.now();
+
   if (period === 'none') {
+    console.log(`✓ splitByPeriod (none): ${(performance.now() - startTime).toFixed(2)}ms`);
     return [{
       label: 'All Data',
       data
@@ -39,41 +42,67 @@ function splitByPeriod(
   const dates = data.date;
   const groups: Map<string, { label: string; indices: number[] }> = new Map();
 
-  // Group indices by period
-  dates.forEach((timestamp, index) => {
+  // Group indices by period (using precomputed keys)
+  const groupStartTime = performance.now();
+
+  let currentKey: string | null = null;
+  let currentGroup: { label: string; indices: number[] } | null = null;
+
+  // Get precomputed key array based on period
+  let keyArray: string[];
+  switch (period) {
+    case 'day':
+      keyArray = data._day_key;
+      break;
+    case 'week':
+      keyArray = data._week_key;
+      break;
+    case 'month':
+      keyArray = data._month_key;
+      break;
+    default:
+      keyArray = [];
+  }
+
+  // Helper to get formatted label (slow, only called once per group)
+  const getLabel = (timestamp: number): string => {
     const date = new Date(timestamp);
-    let key: string;
-    let label: string;
 
     switch (period) {
       case 'day':
-        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-        label = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-        break;
+        return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
       case 'week':
         const weekStart = new Date(date);
-        weekStart.setDate(date.getDate() - date.getDay()); // Start of week (Sunday)
+        weekStart.setDate(date.getDate() - date.getDay());
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 6);
-        key = `${weekStart.getFullYear()}-W${String(Math.ceil(weekStart.getDate() / 7)).padStart(2, '0')}`;
-        label = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-        break;
+        return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
       case 'month':
-        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        break;
+        return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
       default:
-        key = timestamp.toString();
-        label = 'All Data';
+        return 'All Data';
     }
+  };
 
-    if (!groups.has(key)) {
-      groups.set(key, { label, indices: [] });
+  // Process sorted data efficiently using precomputed keys
+  for (let index = 0; index < dates.length; index++) {
+    const key = keyArray[index];
+
+    if (key !== currentKey) {
+      // New period detected - create new group with label
+      currentKey = key;
+      currentGroup = { label: getLabel(dates[index]), indices: [index] };
+      groups.set(key, currentGroup);
+    } else {
+      // Same period - just add index (no calculation needed)
+      currentGroup!.indices.push(index);
     }
-    groups.get(key)!.indices.push(index);
-  });
+  }
+
+  console.log(`  - Grouping indices: ${(performance.now() - groupStartTime).toFixed(2)}ms (${groups.size} groups)`);
 
   // Extract all data for each period (not averaged)
+  const extractStartTime = performance.now();
   const result: PeriodData[] = [];
 
   groups.forEach((group) => {
@@ -98,6 +127,8 @@ function splitByPeriod(
       data: periodData
     });
   });
+  console.log(`  - Extracting data: ${(performance.now() - extractStartTime).toFixed(2)}ms`);
+  console.log(`✓ splitByPeriod (${period}): ${(performance.now() - startTime).toFixed(2)}ms total`);
 
   return result;
 }
@@ -110,9 +141,46 @@ function App() {
 
   // Fetch data on mount
   useEffect(() => {
+    const fetchStart = performance.now();
+    console.log('⏳ Fetching data...');
+
     fetch('/calculationPS_small.json')
-      .then(res => res.json())
+      .then(res => {
+        const parseStart = performance.now();
+        console.log(`✓ Fetch complete: ${(parseStart - fetchStart).toFixed(2)}ms`);
+        return res.json();
+      })
       .then(data => {
+        console.log(`✓ Parse JSON: ${(performance.now() - fetchStart).toFixed(2)}ms total`);
+
+        // Precompute period keys for fast grouping
+        const preprocessStart = performance.now();
+        const dates = data.date;
+        const dayKeys: string[] = [];
+        const weekKeys: string[] = [];
+        const monthKeys: string[] = [];
+
+        for (let i = 0; i < dates.length; i++) {
+          const date = new Date(dates[i]);
+
+          // Day key: "2024-01-01"
+          dayKeys.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`);
+
+          // Week key: "2024-W01"
+          const weekStart = new Date(date);
+          weekStart.setDate(date.getDate() - date.getDay());
+          weekKeys.push(`${weekStart.getFullYear()}-W${String(Math.ceil(weekStart.getDate() / 7)).padStart(2, '0')}`);
+
+          // Month key: "2024-01"
+          monthKeys.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+        }
+
+        data._day_key = dayKeys;
+        data._week_key = weekKeys;
+        data._month_key = monthKeys;
+
+        console.log(`✓ Precompute period keys: ${(performance.now() - preprocessStart).toFixed(2)}ms`);
+
         setCalcPs(data);
         setLoading(false);
       })
@@ -122,8 +190,12 @@ function App() {
       });
   }, []);
 
-  // Filter out 'date' from data keys since it's used as x-axis
-  const dataKeys = useMemo(() => calc_ps ? Object.keys(calc_ps).filter(key => key !== 'date') : [], [calc_ps]);
+  // Filter out 'date' and internal keys from data keys since they're not series data
+  const dataKeys = useMemo(() =>
+    calc_ps ? Object.keys(calc_ps).filter(key =>
+      key !== 'date' && !key.startsWith('_')
+    ) : [],
+  [calc_ps]);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   // Initialize selected keys when data loads
@@ -136,11 +208,20 @@ function App() {
 
   // Split data by periods and get available periods
   const periods = useMemo(() => {
-    if (!calc_ps) return [];
+    const startTime = performance.now();
+
+    if (!calc_ps) {
+      console.log(`✓ periods: 0ms (no data)`);
+      return [];
+    }
 
     const selectedKeysArray = Array.from(selectedKeys);
+    console.log(`🔄 Calculating periods (${aggregation}, ${selectedKeysArray.length} keys)...`);
 
-    return splitByPeriod(calc_ps, aggregation, selectedKeysArray);
+    const result = splitByPeriod(calc_ps, aggregation, selectedKeysArray);
+
+    console.log(`✓ periods: ${(performance.now() - startTime).toFixed(2)}ms (${result.length} periods created)\n`);
+    return result;
   }, [calc_ps, selectedKeys, aggregation]);
 
   // Reset selected period when aggregation changes or periods change
@@ -152,13 +233,20 @@ function App() {
 
   // Get chart data for selected period
   const chartData = useMemo(() => {
-    if (periods.length === 0) return [];
+    const startTime = performance.now();
+    console.log(`🔄 Generating chart data (period ${selectedPeriodIndex}, ${selectedKeys.size} keys)...`);
+
+    if (periods.length === 0) {
+      console.log(`✓ chartData: 0ms (no periods)`);
+      return [];
+    }
 
     const currentPeriod = periods[selectedPeriodIndex] || periods[0];
     const selectedKeysArray = Array.from(selectedKeys);
 
     const processedData = currentPeriod.data;
 
+    const transformStartTime = performance.now();
     const result = [];
     const arrayLength = processedData.date.length;
 
@@ -169,6 +257,9 @@ function App() {
       });
       result.push(point);
     }
+
+    console.log(`  - Transform to chart format: ${(performance.now() - transformStartTime).toFixed(2)}ms (${arrayLength} points)`);
+    console.log(`✓ chartData: ${(performance.now() - startTime).toFixed(2)}ms total\n`);
 
     return result;
   }, [periods, selectedPeriodIndex, selectedKeys]);
