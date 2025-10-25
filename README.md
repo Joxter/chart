@@ -7,6 +7,7 @@ A high-performance interactive chart playground for visualizing large timeseries
 - **Interactive Chart Visualization** - Display multiple timeseries on a single chart
 - **Performance Optimized** - Handles 65k+ data points with downsampling
 - **Dynamic Data Selection** - Toggle series on/off with checkboxes
+- **Time Period Aggregation** - Group data by day, week, or month
 - **Adjustable Performance Settings** - Control data range and rendering points
 - **Timestamp Support** - Properly formatted date/time on X-axis
 
@@ -50,7 +51,15 @@ The app expects a JSON file at `/public/calculationPS_small.json` with this stru
 
 ## Performance Optimizations
 
-### 1. Data Downsampling
+### 1. Time Period Aggregation
+Group data points by day, week, or month with automatic averaging. Reduces data density while preserving trends.
+
+```typescript
+// Example: 65,000 15-minute intervals → ~365 daily averages
+aggregateByPeriod(data, 'day', selectedKeys)
+```
+
+### 2. Data Downsampling
 Uses a simplified Largest-Triangle-Three-Buckets algorithm to reduce rendered points while preserving visual accuracy.
 
 ```typescript
@@ -58,27 +67,37 @@ Uses a simplified Largest-Triangle-Three-Buckets algorithm to reduce rendered po
 downsampleData(data, maxPoints, selectedKeys)
 ```
 
-### 2. Debouncing
+### 3. Debouncing
 300ms debounce on slider changes prevents excessive re-renders.
 
-### 3. Memoization
+### 4. Memoization
 - `useMemo` for expensive data transformations
 - `useCallback` for event handlers
 
-### 4. Selective Processing
+### 5. Selective Processing
 Only processes selected series, not all data keys.
 
-### 5. No Animations
+### 6. No Animations
 `isAnimationActive={false}` on chart lines for better performance.
 
-### 6. Lazy Loading
+### 7. Lazy Loading
 Data fetched asynchronously, not bundled in the app.
 
 ## UI Controls
 
 - **Data Slider** - Adjust how many data points to load (100 - total available)
 - **Max Slider** - Control maximum rendered points (100 - 5,000)
+- **Group Dropdown** - Aggregate data by None/Day/Week/Month
 - **Checkboxes** - Select which series to display on the chart
+
+### Aggregation Modes
+
+- **None** - Display raw data (with downsampling if needed)
+- **Day** - Average values by calendar day
+- **Week** - Average values by week (Sunday to Saturday)
+- **Month** - Average values by calendar month
+
+Aggregation is applied before downsampling, providing better performance for long time ranges.
 
 ## Project Structure
 
@@ -98,14 +117,26 @@ d3-playground/
 
 ### App.tsx
 
-**Data Fetching** (lines 73-84)
+**Data Fetching** (lines 139-150)
 ```typescript
 fetch('/calculationPS_small.json')
   .then(res => res.json())
   .then(data => setCalcPs(data))
 ```
 
-**Downsampling Function** (lines 23-67)
+**Aggregation Function** (lines 21-82)
+```typescript
+function aggregateByPeriod(
+  data: Record<string, number[]>,
+  period: AggregationPeriod,
+  selectedKeys: string[]
+): Record<string, number[]>
+```
+- Groups data points by day/week/month
+- Calculates averages for each period
+- Reduces data points significantly
+
+**Downsampling Function** (lines 85-129)
 ```typescript
 function downsampleData(
   data: Record<string, number[]>,
@@ -113,18 +144,23 @@ function downsampleData(
   selectedKeys: string[]
 ): Record<string, number[]>
 ```
+- Samples data intelligently
+- Preserves visual shape
 
-**Chart Data Transformation** (lines 106-134)
+**Chart Data Transformation** (lines 173-206)
 - Limits data range
+- Applies aggregation (if selected)
 - Applies downsampling
 - Transforms to Recharts format
 
 ## Performance Tips
 
-1. **Start with defaults** - 10,000 data points, 1,000 max render points
-2. **Increase gradually** - Monitor performance as you increase limits
-3. **Limit selected series** - Fewer lines = better performance
-4. **Use downsampling** - Keep max points under 2,000 for smooth interactions
+1. **Start with defaults** - 10,000 data points, 1,000 max render points, no aggregation
+2. **Use aggregation for long ranges** - When viewing months/years of data, aggregate by day/week/month
+3. **Increase gradually** - Monitor performance as you increase limits
+4. **Limit selected series** - Fewer lines = better performance
+5. **Combine aggregation + downsampling** - Aggregate to reduce data, then downsample for rendering
+6. **Keep max points reasonable** - Under 2,000 points for smooth interactions
 
 ## Build for Production
 
