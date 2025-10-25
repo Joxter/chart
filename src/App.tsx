@@ -21,6 +21,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [aggregation, setAggregation] = useState<AggregationPeriod>('week');
   const [selectedPeriodIndex, setSelectedPeriodIndex] = useState<number>(0);
+  const [displayMode, setDisplayMode] = useState<'combined' | 'separate'>('combined');
 
   // Fetch data on mount
   useEffect(() => {
@@ -178,6 +179,14 @@ function App() {
               <option value="month">Month</option>
             </select>
           </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <input
+              type="checkbox"
+              checked={displayMode === 'separate'}
+              onChange={(e) => setDisplayMode(e.target.checked ? 'separate' : 'combined')}
+            />
+            <span style={{ fontSize: '0.875rem' }}>Separate charts</span>
+          </label>
           {aggregation !== 'none' && periods.length > 1 && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button
@@ -222,33 +231,68 @@ function App() {
           <p>length: {chartData.length}</p>
         </div>
 
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              dataKey="date"
-              tickFormatter={formatDate}
-              scale="time"
-              minTickGap={40}
-            />
-            <YAxis />
-            <Tooltip
-              labelFormatter={(value) => new Date(value).toLocaleString()}
-            />
-            <Legend />
-            {Array.from(selectedKeys).map((key) => (
-              <Line
-                key={key}
-                type="monotone"
-                dataKey={key}
-                stroke={COLORS[dataKeys.indexOf(key) % COLORS.length]}
-                strokeWidth={2}
-                dot={false}
-                isAnimationActive={false}
+        {displayMode === 'combined' ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData}>
+              <XAxis
+                dataKey="date"
+                tickFormatter={formatDate}
+                scale="time"
+                minTickGap={40}
               />
+              <YAxis />
+              <Tooltip
+                labelFormatter={(value) => new Date(value).toLocaleString()}
+              />
+              <Legend />
+              {Array.from(selectedKeys).map((key) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  stroke={COLORS[dataKeys.indexOf(key) % COLORS.length]}
+                  strokeWidth={1}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {Array.from(selectedKeys).map((key) => (
+              <div key={key} style={{ display: 'flex', flexDirection: 'column' }}>
+                <p style={{
+                  color: COLORS[dataKeys.indexOf(key) % COLORS.length]
+                }}>
+                  {key}
+                </p>
+                <ResponsiveContainer width="100%" height={150}>
+                  <LineChart data={chartData} syncId="anyId" >
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={formatDate}
+                      scale="time"
+                      minTickGap={40}
+                    />
+                    <YAxis />
+                    <Tooltip
+                      labelFormatter={(value) => new Date(value).toLocaleString()}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={key}
+                      stroke={COLORS[dataKeys.indexOf(key) % COLORS.length]}
+                      strokeWidth={1}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             ))}
-          </LineChart>
-        </ResponsiveContainer>
+          </div>
+        )}
       </div>
     </div>
   );
