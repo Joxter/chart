@@ -10,12 +10,13 @@ export interface PeriodData {
 export function splitByPeriod(
   data: Record<string, number[]>,
   period: AggregationPeriod,
-  selectedKeys: string[]
 ): PeriodData[] {
   const startTime = performance.now();
+  const selectedKeys = Object.keys(data).filter(key =>
+    key !== 'date' && !key.startsWith('_')
+  )
 
   if (period === 'none') {
-    console.log(`✓ splitByPeriod (none): ${(performance.now() - startTime).toFixed(2)}ms`);
     return [{
       label: 'All Data',
       data
@@ -23,13 +24,10 @@ export function splitByPeriod(
   }
 
   const dates = data.date;
-  const groups: Map<string, { label: string; indices: number[] }> = new Map();
-
-  // Group indices by period (using precomputed keys)
-  const groupStartTime = performance.now();
+  const groups: Array<{ label: string; startIndex: number; endIndex: number }> = [];
 
   let currentKey: string | null = null;
-  let currentGroup: { label: string; indices: number[] } | null = null;
+  let currentGroup: { label: string; startIndex: number; endIndex: number } | null = null;
 
   // Get precomputed key array based on period
   let keyArray: string[];
@@ -74,35 +72,25 @@ export function splitByPeriod(
     if (key !== currentKey) {
       // New period detected - create new group with label
       currentKey = key;
-      currentGroup = { label: getLabel(dates[index]), indices: [index] };
-      groups.set(key, currentGroup);
+      currentGroup = { label: getLabel(dates[index]), startIndex: index, endIndex: index };
+      groups.push(currentGroup);
     } else {
-      // Same period - just add index (no calculation needed)
-      currentGroup!.indices.push(index);
+      // Same period - just update end index (no calculation needed)
+      currentGroup!.endIndex = index;
     }
   }
 
-  console.log(`  - Grouping indices: ${(performance.now() - groupStartTime).toFixed(2)}ms (${groups.size} groups)`);
-
   // Extract all data for each period (not averaged)
-  const extractStartTime = performance.now();
   const result: PeriodData[] = [];
 
   groups.forEach((group) => {
     const periodData: Record<string, number[]> = {
-      date: []
+      date: dates.slice(group.startIndex, group.endIndex + 1)
     };
 
+    // Use array slicing instead of forEach - much faster
     selectedKeys.forEach(key => {
-      periodData[key] = [];
-    });
-
-    // Copy all data points for this period
-    group.indices.forEach(i => {
-      periodData.date.push(dates[i]);
-      selectedKeys.forEach(key => {
-        periodData[key].push(data[key][i]);
-      });
+      periodData[key] = data[key].slice(group.startIndex, group.endIndex + 1);
     });
 
     result.push({
@@ -110,7 +98,6 @@ export function splitByPeriod(
       data: periodData
     });
   });
-  console.log(`  - Extracting data: ${(performance.now() - extractStartTime).toFixed(2)}ms`);
   console.log(`✓ splitByPeriod (${period}): ${(performance.now() - startTime).toFixed(2)}ms total`);
 
   return result;
@@ -120,23 +107,30 @@ export function splitByPeriod(
 export function preprocessData(data: Record<string, number[]>): Record<string, number[]> {
   const preprocessStart = performance.now();
   const dates = data.date;
-  const dayKeys: string[] = [];
-  const weekKeys: string[] = [];
-  const monthKeys: string[] = [];
+  const length = dates.length;
 
-  for (let i = 0; i < dates.length; i++) {
+  // Pre-allocate arrays for better performance
+  const dayKeys: string[] = new Array(length);
+  const weekKeys: string[] = new Array(length);
+  const monthKeys: string[] = new Array(length);
+
+  for (let i = 0; i < length; i++) {
     const date = new Date(dates[i]);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
 
     // Day key: "2024-01-01"
-    dayKeys.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`);
+    dayKeys[i] = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-    // Week key: "2024-W01"
+    // Week key: Use the date of the week start (Sunday) as unique identifier
+    // This ensures each week has a unique key across years
     const weekStart = new Date(date);
-    weekStart.setDate(date.getDate() - date.getDay());
-    weekKeys.push(`${weekStart.getFullYear()}-W${String(Math.ceil(weekStart.getDate() / 7)).padStart(2, '0')}`);
+    weekStart.setDate(day - date.getDay());
+    weekKeys[i] = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
 
     // Month key: "2024-01"
-    monthKeys.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+    monthKeys[i] = `${year}-${String(month).padStart(2, '0')}`;
   }
 
   data._day_key = dayKeys;

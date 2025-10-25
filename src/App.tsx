@@ -9,7 +9,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { splitByPeriod, preprocessData, type AggregationPeriod, type PeriodData } from './utils';
+import { splitByPeriod, preprocessData, type AggregationPeriod } from './utils';
 
 const COLORS = [
   '#8884d8', '#82ca9d', '#ffc658', '#ff7c7c', '#8dd1e1',
@@ -24,21 +24,12 @@ function App() {
 
   // Fetch data on mount
   useEffect(() => {
-    const fetchStart = performance.now();
-    console.log('⏳ Fetching data...');
-
     fetch('/calculationPS_small.json')
       .then(res => {
-        const parseStart = performance.now();
-        console.log(`✓ Fetch complete: ${(parseStart - fetchStart).toFixed(2)}ms`);
         return res.json();
       })
       .then(data => {
-        console.log(`✓ Parse JSON: ${(performance.now() - fetchStart).toFixed(2)}ms total`);
-
-        // Precompute period keys for fast grouping
         const processedData = preprocessData(data);
-
         setCalcPs(processedData);
         setLoading(false);
       })
@@ -69,18 +60,14 @@ function App() {
     const startTime = performance.now();
 
     if (!calc_ps) {
-      console.log(`✓ periods: 0ms (no data)`);
       return [];
     }
+    const result = splitByPeriod(calc_ps, aggregation);
+    // console.log(result);
 
-    const selectedKeysArray = Array.from(selectedKeys);
-    console.log(`🔄 Calculating periods (${aggregation}, ${selectedKeysArray.length} keys)...`);
-
-    const result = splitByPeriod(calc_ps, aggregation, selectedKeysArray);
-
-    console.log(`✓ periods: ${(performance.now() - startTime).toFixed(2)}ms (${result.length} periods created)\n`);
+    console.log(`periods: ${(performance.now() - startTime).toFixed(2)}ms`);
     return result;
-  }, [calc_ps, selectedKeys, aggregation]);
+  }, [calc_ps, aggregation]);
 
   // Reset selected period when aggregation changes or periods change
   useEffect(() => {
@@ -92,10 +79,7 @@ function App() {
   // Get chart data for selected period
   const chartData = useMemo(() => {
     const startTime = performance.now();
-    console.log(`🔄 Generating chart data (period ${selectedPeriodIndex}, ${selectedKeys.size} keys)...`);
-
     if (periods.length === 0) {
-      console.log(`✓ chartData: 0ms (no periods)`);
       return [];
     }
 
@@ -104,7 +88,6 @@ function App() {
 
     const processedData = currentPeriod.data;
 
-    const transformStartTime = performance.now();
     const result = [];
     const arrayLength = processedData.date.length;
 
@@ -116,9 +99,7 @@ function App() {
       result.push(point);
     }
 
-    console.log(`  - Transform to chart format: ${(performance.now() - transformStartTime).toFixed(2)}ms (${arrayLength} points)`);
-    console.log(`✓ chartData: ${(performance.now() - startTime).toFixed(2)}ms total\n`);
-
+    console.log(`chartData: ${(performance.now() - startTime).toFixed(1)}ms`);
     return result;
   }, [periods, selectedPeriodIndex, selectedKeys]);
 
@@ -138,18 +119,16 @@ function App() {
     const date = new Date(timestamp);
 
     // For period-based views, show time within the period
-    if (aggregation === 'day' || aggregation === 'week' || aggregation === 'month') {
-      return date.toLocaleTimeString('en-US', {
+    if (aggregation === 'day') {
+      return date.toLocaleTimeString('en-UK', {
         hour: '2-digit',
         minute: '2-digit'
       });
     }
 
-    // For 'none', show date + time
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString('en-UK', {
       month: 'short',
       day: 'numeric',
-      hour: '2-digit'
     });
   }, [aggregation]);
 
@@ -228,9 +207,9 @@ function App() {
               </button>
             </div>
           )}
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {dataKeys.map((key, index) => (
-              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                 <input
                   type="checkbox"
                   checked={selectedKeys.has(key)}
@@ -240,6 +219,7 @@ function App() {
               </label>
             ))}
           </div>
+          <p>length: {chartData.length}</p>
         </div>
 
         <ResponsiveContainer width="100%" height={300}>
