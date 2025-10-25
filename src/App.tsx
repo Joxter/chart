@@ -222,15 +222,14 @@ function App() {
           <p>length: {chartData.length}</p>
         </div>
 
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={200}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="date"
               tickFormatter={formatDate}
               scale="time"
-              type="number"
-              domain={['dataMin', 'dataMax']}
+              minTickGap={40}
             />
             <YAxis />
             <Tooltip
