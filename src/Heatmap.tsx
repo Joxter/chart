@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
-import * as d3 from 'd3';
+import { useEffect, useRef, useState, useMemo } from "react";
+import * as d3 from "d3";
 
 export interface HeatmapProps {
   data: number[];
@@ -36,7 +36,7 @@ export default function Heatmap({
   cellWidth = 4,
   cellHeight = 4,
   cellGap = 1,
-  colorScale = ['#2166ac', '#f7f7f7', '#b2182b'],
+  colorScale = ["#2166ac", "#f7f7f7", "#b2182b"],
   margins = { top: 30, right: 10, bottom: 30, left: 40 },
   showAxes = true,
   showTooltip = true,
@@ -56,7 +56,7 @@ export default function Heatmap({
     visible: false,
     x: 0,
     y: 0,
-    content: '',
+    content: "",
   });
 
   // Memoize dimension calculations
@@ -80,28 +80,32 @@ export default function Heatmap({
 
   // Create color palette with fast lookup (OPTIMIZED: 256 colors instead of 35k)
   const colorPalette = useMemo(() => {
-    console.time('Create color palette');
+    console.time("Create color palette");
     const dataMin = minValue ?? d3.min(data) ?? 0;
     const dataMax = maxValue ?? d3.max(data) ?? 1;
     const hasNegative = dataMin < 0;
     const useDiverging = hasNegative && colorScale.length === 3;
-    const absMax = useDiverging ? Math.max(Math.abs(dataMin), Math.abs(dataMax)) : 0;
+    const absMax = useDiverging
+      ? Math.max(Math.abs(dataMin), Math.abs(dataMax))
+      : 0;
 
     // Create D3 color scale function (only used for palette generation)
     let colorFn: (value: number) => string;
     if (useDiverging) {
-      colorFn = d3.scaleLinear<string>()
+      colorFn = d3
+        .scaleLinear<string>()
         .domain([-absMax, 0, absMax])
         .range([colorScale[0], colorScale[1], colorScale[2]])
         .clamp(true);
     } else {
-      const colors = colorScale.length === 3 ? [colorScale[1], colorScale[2]] : colorScale;
-      colorFn = d3.scaleSequential(d3.interpolateRgb(colors[0], colors[1]))
+      const colors =
+        colorScale.length === 3 ? [colorScale[1], colorScale[2]] : colorScale;
+      colorFn = d3
+        .scaleSequential(d3.interpolateRgb(colors[0], colors[1]))
         .domain([dataMin, dataMax]);
     }
 
-    // Pre-generate palette of 256 distinct colors
-    const paletteSize = 256;
+    const paletteSize = 32;
     const palette = new Array(paletteSize);
 
     if (useDiverging) {
@@ -118,27 +122,30 @@ export default function Heatmap({
       }
     }
 
-    // Fast value-to-color lookup function using simple math (no binary search needed)
+    // Pre-compute scale factors for fast lookup (avoids division in hot path)
+    const maxIndex = paletteSize - 1;
+    const divergingScale = maxIndex / (2 * absMax);
+    const sequentialScale = maxIndex / (dataMax - dataMin);
+
+    // Fast value-to-color lookup function using pre-computed scale
     const getColor = (value: number): string | null => {
       if (value === null || value === undefined || isNaN(value)) return null;
 
       let index: number;
       if (useDiverging) {
-        // Map value from [-absMax, absMax] to [0, paletteSize-1]
-        const t = (value + absMax) / (2 * absMax);
-        index = Math.round(t * (paletteSize - 1));
+        // Map value from [-absMax, absMax] to [0, maxIndex]
+        index = Math.round((value + absMax) * divergingScale);
       } else {
-        // Map value from [dataMin, dataMax] to [0, paletteSize-1]
-        const t = (value - dataMin) / (dataMax - dataMin);
-        index = Math.round(t * (paletteSize - 1));
+        // Map value from [dataMin, dataMax] to [0, maxIndex]
+        index = Math.round((value - dataMin) * sequentialScale);
       }
 
       // Clamp to valid range
-      index = Math.max(0, Math.min(paletteSize - 1, index));
+      index = Math.max(0, Math.min(maxIndex, index));
       return palette[index];
     };
 
-    console.timeEnd('Create color palette');
+    console.timeEnd("Create color palette");
     return { dataMin, dataMax, useDiverging, absMax, palette, getColor };
   }, [data, minValue, maxValue, colorScale]);
 
@@ -150,14 +157,14 @@ export default function Heatmap({
     if (showAxes) {
       // X-axis labels
       for (let col = 0; col < cols; col++) {
-        let label: string = '';
-        if (typeof xAxisLabels === 'function') {
+        let label: string = "";
+        if (typeof xAxisLabels === "function") {
           label = xAxisLabels(col);
         } else if (Array.isArray(xAxisLabels)) {
-          label = xAxisLabels[col] || '';
+          label = xAxisLabels[col] || "";
         } else {
           const xLabelStep = Math.ceil(cols / 12);
-          label = col % xLabelStep === 0 ? `Day ${col + 1}` : '';
+          label = col % xLabelStep === 0 ? `Day ${col + 1}` : "";
         }
 
         if (label) {
@@ -171,16 +178,16 @@ export default function Heatmap({
 
       // Y-axis labels
       for (let row = 0; row < rows; row++) {
-        let label: string = '';
-        if (typeof yAxisLabels === 'function') {
+        let label: string = "";
+        if (typeof yAxisLabels === "function") {
           label = yAxisLabels(row);
         } else if (Array.isArray(yAxisLabels)) {
-          label = yAxisLabels[row] || '';
+          label = yAxisLabels[row] || "";
         } else {
           if (row % 4 === 0) {
             const hour = Math.floor(row / 4);
             const minute = (row % 4) * 15;
-            label = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+            label = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
           }
         }
 
@@ -195,16 +202,26 @@ export default function Heatmap({
     }
 
     return { xLabels, yLabels };
-  }, [showAxes, cols, rows, xAxisLabels, yAxisLabels, margins, dimensions, cellWidth]);
+  }, [
+    showAxes,
+    cols,
+    rows,
+    xAxisLabels,
+    yAxisLabels,
+    margins,
+    dimensions,
+    cellWidth,
+  ]);
 
   useEffect(() => {
     if (!canvasRef.current || !data || data.length === 0) return;
 
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const { width, height, totalCellWidth, totalCellHeight, chartWidth } = dimensions;
+    const { width, height, totalCellWidth, totalCellHeight, chartWidth } =
+      dimensions;
 
     // Set canvas size with device pixel ratio for crisp rendering
     const dpr = window.devicePixelRatio || 1;
@@ -220,42 +237,59 @@ export default function Heatmap({
     // Update cached rect for mouse events
     rectCacheRef.current = canvas.getBoundingClientRect();
 
-    // Draw cells using palette lookup (OPTIMIZED: 256 colors, fast math lookup)
-    console.time('Heatmap render');
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
+    console.time("Heatmap render");
+    // Optimize by merging consecutive cells with the same color
+    for (let col = 0; col < cols; col++) {
+      const x = margins.left + col * totalCellWidth;
+      let runStartCol = 0;
+      let runColor: string | null = null;
+
+      for (let row = 0; row < rows; row++) {
         const index = col * rows + row;
         if (index >= data.length) break;
 
         const value = data[index];
         const color = colorPalette.getColor(value);
-        if (!color) continue;
 
-        const x = margins.left + col * totalCellWidth;
-        const y = margins.top + row * totalCellHeight;
+        if (color !== runColor) {
+          if (runColor !== null) {
+            const y = margins.top + runStartCol * totalCellHeight;
+            const runHeight = row - runStartCol;
+            const height = runHeight * totalCellWidth - cellGap;
+            ctx.fillStyle = runColor;
+            ctx.fillRect(x, y, totalCellWidth, height);
+          }
+          runStartCol = row;
+          runColor = color;
+        }
+      }
 
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, cellWidth, cellHeight);
+      if (runColor !== null) {
+        const y = margins.top + runStartCol * totalCellHeight;
+        const runHeight = rows - runStartCol;
+        const height = runHeight * totalCellWidth - cellGap;
+        ctx.fillStyle = runColor;
+        ctx.fillRect(x, y, totalCellWidth, height);
       }
     }
-    console.timeEnd('Heatmap render');
+    console.timeEnd("Heatmap render");
 
     // Draw axes using pre-computed labels (OPTIMIZED)
     if (showAxes) {
-      ctx.fillStyle = '#333';
-      ctx.font = '10px sans-serif';
+      ctx.fillStyle = "#333";
+      ctx.font = "10px sans-serif";
 
       // X-axis labels (bottom)
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
       const yPos = margins.top + dimensions.chartHeight + 5;
       for (const { label, x } of axisLabels.xLabels) {
         ctx.fillText(label, x, yPos);
       }
 
       // Y-axis labels (left)
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
       const xPos = margins.left - 5;
       for (const { label, y } of axisLabels.yLabels) {
         ctx.fillText(label, xPos, y);
@@ -270,7 +304,12 @@ export default function Heatmap({
       const legendY = 10;
 
       // Draw gradient (horizontal)
-      const gradient = ctx.createLinearGradient(legendX, 0, legendX + legendWidth, 0);
+      const gradient = ctx.createLinearGradient(
+        legendX,
+        0,
+        legendX + legendWidth,
+        0,
+      );
 
       if (colorPalette.useDiverging) {
         // Diverging gradient: negative -> zero -> positive
@@ -279,7 +318,8 @@ export default function Heatmap({
         gradient.addColorStop(1, colorScale[2]);
       } else {
         // Sequential gradient: min -> max
-        const colors = colorScale.length === 3 ? [colorScale[1], colorScale[2]] : colorScale;
+        const colors =
+          colorScale.length === 3 ? [colorScale[1], colorScale[2]] : colorScale;
         gradient.addColorStop(0, colors[0]);
         gradient.addColorStop(1, colors[1]);
       }
@@ -288,44 +328,68 @@ export default function Heatmap({
       ctx.fillRect(legendX, legendY, legendWidth, legendHeight);
 
       // Draw border
-      ctx.strokeStyle = '#333';
+      ctx.strokeStyle = "#333";
       ctx.lineWidth = 1;
       ctx.strokeRect(legendX, legendY, legendWidth, legendHeight);
 
       // Draw labels
-      ctx.fillStyle = '#333';
-      ctx.font = '11px sans-serif';
-      ctx.textBaseline = 'top';
+      ctx.fillStyle = "#333";
+      ctx.font = "11px sans-serif";
+      ctx.textBaseline = "top";
 
       if (colorPalette.useDiverging) {
         // For diverging scale, show symmetric min/max around zero
-        ctx.textAlign = 'left';
-        ctx.fillText(valueFormatter(-colorPalette.absMax), legendX, legendY + legendHeight + 3);
+        ctx.textAlign = "left";
+        ctx.fillText(
+          valueFormatter(-colorPalette.absMax),
+          legendX,
+          legendY + legendHeight + 3,
+        );
 
-        ctx.textAlign = 'center';
-        ctx.fillText(valueFormatter(0), legendX + legendWidth / 2, legendY + legendHeight + 3);
+        ctx.textAlign = "center";
+        ctx.fillText(
+          valueFormatter(0),
+          legendX + legendWidth / 2,
+          legendY + legendHeight + 3,
+        );
 
-        ctx.textAlign = 'right';
-        ctx.fillText(valueFormatter(colorPalette.absMax), legendX + legendWidth, legendY + legendHeight + 3);
+        ctx.textAlign = "right";
+        ctx.fillText(
+          valueFormatter(colorPalette.absMax),
+          legendX + legendWidth,
+          legendY + legendHeight + 3,
+        );
       } else {
         // For sequential scale, show actual min/max
-        ctx.textAlign = 'left';
-        ctx.fillText(valueFormatter(colorPalette.dataMin), legendX, legendY + legendHeight + 3);
+        ctx.textAlign = "left";
+        ctx.fillText(
+          valueFormatter(colorPalette.dataMin),
+          legendX,
+          legendY + legendHeight + 3,
+        );
 
-        ctx.textAlign = 'right';
-        ctx.fillText(valueFormatter(colorPalette.dataMax), legendX + legendWidth, legendY + legendHeight + 3);
+        ctx.textAlign = "right";
+        ctx.fillText(
+          valueFormatter(colorPalette.dataMax),
+          legendX + legendWidth,
+          legendY + legendHeight + 3,
+        );
 
-        ctx.textAlign = 'center';
+        ctx.textAlign = "center";
         const midValue = (colorPalette.dataMin + colorPalette.dataMax) / 2;
-        ctx.fillText(valueFormatter(midValue), legendX + legendWidth / 2, legendY + legendHeight + 3);
+        ctx.fillText(
+          valueFormatter(midValue),
+          legendX + legendWidth / 2,
+          legendY + legendHeight + 3,
+        );
       }
     }
 
     // Draw ticks for highlighted columns (selected period)
     if (highlightedCols.length > 0) {
-      ctx.strokeStyle = '#ff6b00';
+      ctx.strokeStyle = "#ff6b00";
       ctx.lineWidth = 2;
-      ctx.fillStyle = '#ff6b00';
+      ctx.fillStyle = "#ff6b00";
 
       highlightedCols.forEach((col) => {
         const x = margins.left + col * totalCellWidth;
@@ -343,13 +407,30 @@ export default function Heatmap({
         ctx.stroke();
       });
     }
-  }, [data, rows, cols, cellWidth, cellHeight, cellGap, colorScale, margins, showAxes, showLegend, dimensions, axisLabels, colorPalette, valueFormatter, highlightedCols]);
+  }, [
+    data,
+    rows,
+    cols,
+    cellWidth,
+    cellHeight,
+    cellGap,
+    colorScale,
+    margins,
+    showAxes,
+    showLegend,
+    dimensions,
+    axisLabels,
+    colorPalette,
+    valueFormatter,
+    highlightedCols,
+  ]);
 
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
     if (!showTooltip || !canvasRef.current) return;
 
     // Use cached rect (OPTIMIZED)
-    const rect = rectCacheRef.current || canvasRef.current.getBoundingClientRect();
+    const rect =
+      rectCacheRef.current || canvasRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
@@ -366,7 +447,7 @@ export default function Heatmap({
         if (value !== null && value !== undefined && !isNaN(value)) {
           const hour = Math.floor(row / 4);
           const minute = (row % 4) * 15;
-          const timeLabel = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+          const timeLabel = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
 
           setTooltip({
             visible: true,
@@ -379,18 +460,19 @@ export default function Heatmap({
       }
     }
 
-    setTooltip({ visible: false, x: 0, y: 0, content: '' });
+    setTooltip({ visible: false, x: 0, y: 0, content: "" });
   };
 
   const handleMouseLeave = () => {
-    setTooltip({ visible: false, x: 0, y: 0, content: '' });
+    setTooltip({ visible: false, x: 0, y: 0, content: "" });
   };
 
   const handleClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
     if (!onCellClick || !canvasRef.current) return;
 
     // Use cached rect (OPTIMIZED)
-    const rect = rectCacheRef.current || canvasRef.current.getBoundingClientRect();
+    const rect =
+      rectCacheRef.current || canvasRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
@@ -412,28 +494,31 @@ export default function Heatmap({
   };
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', display: 'inline-block' }}>
+    <div
+      ref={containerRef}
+      style={{ position: "relative", display: "inline-block" }}
+    >
       <canvas
         ref={canvasRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
-        style={{ cursor: showTooltip || onCellClick ? 'pointer' : 'default' }}
+        style={{ cursor: showTooltip || onCellClick ? "pointer" : "default" }}
       />
       {tooltip.visible && (
         <div
           style={{
-            position: 'fixed',
+            position: "fixed",
             left: tooltip.x + 10,
             top: tooltip.y + 10,
-            background: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            padding: '4px 8px',
-            borderRadius: '4px',
-            fontSize: '12px',
-            pointerEvents: 'none',
+            background: "rgba(0, 0, 0, 0.8)",
+            color: "white",
+            padding: "4px 8px",
+            borderRadius: "4px",
+            fontSize: "12px",
+            pointerEvents: "none",
             zIndex: 1000,
-            whiteSpace: 'nowrap',
+            whiteSpace: "nowrap",
           }}
         >
           {tooltip.content}
