@@ -1,62 +1,74 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   LineChart,
   Line,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
   Legend,
   ResponsiveContainer,
-} from 'recharts';
-import { splitByPeriod, preprocessData, type AggregationPeriod } from './utils';
-import Heatmap from './Heatmap';
+} from "recharts";
+import { splitByPeriod, preprocessData, type AggregationPeriod } from "./utils";
+import Heatmap from "./Heatmap";
 
 const COLORS = [
-  '#8884d8', '#82ca9d', '#ffc658', '#ff7c7c', '#8dd1e1',
-  '#d084d0', '#a4de6c', '#ffb347', '#76d7c4', '#f06292',
+  "#8884d8",
+  "#82ca9d",
+  "#ffc658",
+  "#ff7c7c",
+  "#8dd1e1",
+  "#d084d0",
+  "#a4de6c",
+  "#ffb347",
+  "#76d7c4",
+  "#f06292",
 ];
 
 function App() {
   const [calc_ps, setCalcPs] = useState<Record<string, number[]> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [aggregation, setAggregation] = useState<AggregationPeriod>('week');
+  const [aggregation, setAggregation] = useState<AggregationPeriod>("week");
   const [selectedPeriodIndex, setSelectedPeriodIndex] = useState<number>(0);
-  const [displayMode, setDisplayMode] = useState<'combined' | 'separate'>('combined');
+  const [displayMode, setDisplayMode] = useState<"combined" | "separate">(
+    "combined",
+  );
   const [allInOne, setAllInOne] = useState(false);
-  const [showHeatmap, setShowHeatmap] = useState(false);
-  const [heatmapKey, setHeatmapKey] = useState<string>('');
+  const [heatmapKey, setHeatmapKey] = useState<string>("");
 
   // Fetch data on mount
   useEffect(() => {
-    fetch('/calculationPS_small.json')
-      .then(res => {
+    fetch("/calculationPS_small.json")
+      .then((res) => {
         return res.json();
       })
-      .then(data => {
+      .then((data) => {
         const processedData = preprocessData(data);
         setCalcPs(processedData);
         setLoading(false);
       })
-      .catch(err => {
-        console.error('Failed to load data:', err);
+      .catch((err) => {
+        console.error("Failed to load data:", err);
         setLoading(false);
       });
   }, []);
 
   // Filter out 'date' and internal keys from data keys since they're not series data
-  const dataKeys = useMemo(() =>
-    calc_ps ? Object.keys(calc_ps).filter(key =>
-      key !== 'date' && !key.startsWith('_')
-    ) : [],
-  [calc_ps]);
+  const dataKeys = useMemo(
+    () =>
+      calc_ps
+        ? Object.keys(calc_ps).filter(
+            (key) => key !== "date" && !key.startsWith("_"),
+          )
+        : [],
+    [calc_ps],
+  );
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
   // Initialize selected keys when data loads
   useEffect(() => {
     if (dataKeys.length > 0 && selectedKeys.size === 0) {
       setSelectedKeys(new Set(dataKeys.slice(0, 2)));
-      setHeatmapKey(dataKeys[0] || '');
+      setHeatmapKey(dataKeys[0] || "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataKeys]);
@@ -99,7 +111,7 @@ function App() {
 
     for (let i = 0; i < arrayLength; i++) {
       const point: Record<string, number> = { date: processedData.date[i] };
-      selectedKeysArray.forEach(key => {
+      selectedKeysArray.forEach((key) => {
         point[key] = processedData[key][i];
       });
       result.push(point);
@@ -111,7 +123,7 @@ function App() {
 
   // Get combined data for all periods (for "all in one" mode)
   const allPeriodsChartData = useMemo(() => {
-    if (periods.length === 0 || !allInOne || displayMode !== 'separate') {
+    if (periods.length === 0 || !allInOne || displayMode !== "separate") {
       return null;
     }
 
@@ -120,7 +132,7 @@ function App() {
 
     // Find the maximum length across all periods
     let maxLength = 0;
-    periods.forEach(period => {
+    periods.forEach((period) => {
       maxLength = Math.max(maxLength, period.data.date.length);
     });
 
@@ -132,16 +144,19 @@ function App() {
       // For each period, add data for each key
       periods.forEach((period, periodIndex) => {
         const periodData = period.data;
-        selectedKeysArray.forEach(key => {
+        selectedKeysArray.forEach((key) => {
           const dataKey = `${key}_p${periodIndex}`;
-          point[dataKey] = i < periodData.date.length ? periodData[key][i] : null;
+          point[dataKey] =
+            i < periodData.date.length ? periodData[key][i] : null;
         });
       });
 
       result.push(point);
     }
 
-    console.log(`allPeriodsChartData: ${(performance.now() - startTime).toFixed(1)}ms`);
+    console.log(
+      `allPeriodsChartData: ${(performance.now() - startTime).toFixed(1)}ms`,
+    );
     return result;
   }, [periods, selectedKeys, allInOne, displayMode]);
 
@@ -163,12 +178,14 @@ function App() {
     // Take only the data we need (first 365 days)
     const heatmapArray = data.slice(0, totalCells);
 
-    console.log(`heatmapData prepared: ${(performance.now() - startTime).toFixed(1)}ms, length: ${heatmapArray.length}`);
+    console.log(
+      `heatmapData prepared: ${(performance.now() - startTime).toFixed(1)}ms, length: ${heatmapArray.length}`,
+    );
     return heatmapArray;
   }, [calc_ps, heatmapKey]);
 
   const toggleKey = useCallback((key: string) => {
-    setSelectedKeys(prev => {
+    setSelectedKeys((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(key)) {
         newSet.delete(key);
@@ -179,37 +196,53 @@ function App() {
     });
   }, []);
 
-  const formatDate = useCallback((timestamp: number) => {
-    const date = new Date(timestamp);
+  const formatDate = useCallback(
+    (timestamp: number) => {
+      const date = new Date(timestamp);
 
-    // For period-based views, show time within the period
-    if (aggregation === 'day') {
-      return date.toLocaleTimeString('en-UK', {
-        hour: '2-digit',
-        minute: '2-digit'
+      // For period-based views, show time within the period
+      if (aggregation === "day") {
+        return date.toLocaleTimeString("en-UK", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      return date.toLocaleDateString("en-UK", {
+        month: "short",
+        day: "numeric",
       });
-    }
-
-    return date.toLocaleDateString('en-UK', {
-      month: 'short',
-      day: 'numeric',
-    });
-  }, [aggregation]);
+    },
+    [aggregation],
+  );
 
   // Memoize heatmap label functions to prevent unnecessary re-renders
   const heatmapXAxisLabels = useCallback((col: number) => {
     const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const monthIndex = monthStarts.indexOf(col);
-    return monthIndex !== -1 ? monthNames[monthIndex] : '';
+    return monthIndex !== -1 ? monthNames[monthIndex] : "";
   }, []);
 
   const heatmapYAxisLabels = useCallback((row: number) => {
     if (row % 12 === 0) {
       const hour = Math.floor(row / 4);
-      return `${hour.toString().padStart(2, '0')}:00`;
+      return `${hour.toString().padStart(2, "0")}:00`;
     }
-    return '';
+    return "";
   }, []);
 
   const heatmapValueFormatter = useCallback((v: number) => v.toFixed(1), []);
@@ -241,9 +274,17 @@ function App() {
       <h1>Recharts Playground</h1>
 
       <div className="chart-section">
-        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.875rem', whiteSpace: 'nowrap' }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "1.5rem",
+            alignItems: "center",
+            marginBottom: "1rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <span style={{ fontSize: "0.875rem", whiteSpace: "nowrap" }}>
               Group:
             </span>
             <select
@@ -252,7 +293,11 @@ function App() {
                 setAggregation(e.target.value as AggregationPeriod);
                 setSelectedPeriodIndex(0);
               }}
-              style={{ fontSize: '0.875rem', padding: '0.25rem', cursor: 'pointer' }}
+              style={{
+                fontSize: "0.875rem",
+                padding: "0.25rem",
+                cursor: "pointer",
+              }}
             >
               <option value="none">None</option>
               <option value="day">Day</option>
@@ -260,37 +305,62 @@ function App() {
               <option value="month">Month</option>
             </select>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}
+          >
             <input
               type="checkbox"
-              checked={displayMode === 'separate'}
-              onChange={(e) => setDisplayMode(e.target.checked ? 'separate' : 'combined')}
+              checked={displayMode === "separate"}
+              onChange={(e) =>
+                setDisplayMode(e.target.checked ? "separate" : "combined")
+              }
             />
-            <span style={{ fontSize: '0.875rem' }}>Separate charts</span>
+            <span style={{ fontSize: "0.875rem" }}>Separate charts</span>
           </label>
-          {displayMode === 'separate' && aggregation !== 'none' && periods.length > 1 && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <input
-                type="checkbox"
-                checked={allInOne}
-                onChange={(e) => setAllInOne(e.target.checked)}
-              />
-              <span style={{ fontSize: '0.875rem' }}>All in one</span>
-            </label>
-          )}
-          {aggregation !== 'none' && periods.length > 1 && (
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {displayMode === "separate" &&
+            aggregation !== "none" &&
+            periods.length > 1 && (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={allInOne}
+                  onChange={(e) => setAllInOne(e.target.checked)}
+                />
+                <span style={{ fontSize: "0.875rem" }}>All in one</span>
+              </label>
+            )}
+          {aggregation !== "none" && periods.length > 1 && (
+            <div
+              style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}
+            >
               <button
-                onClick={() => setSelectedPeriodIndex(Math.max(0, selectedPeriodIndex - 1))}
+                onClick={() =>
+                  setSelectedPeriodIndex(Math.max(0, selectedPeriodIndex - 1))
+                }
                 disabled={selectedPeriodIndex === 0}
-                style={{ fontSize: '0.875rem', padding: '0.25rem 0.5rem', cursor: 'pointer' }}
+                style={{
+                  fontSize: "0.875rem",
+                  padding: "0.25rem 0.5rem",
+                  cursor: "pointer",
+                }}
               >
                 ←
               </button>
               <select
                 value={selectedPeriodIndex}
                 onChange={(e) => setSelectedPeriodIndex(Number(e.target.value))}
-                style={{ fontSize: '0.875rem', padding: '0.25rem', cursor: 'pointer', minWidth: '150px' }}
+                style={{
+                  fontSize: "0.875rem",
+                  padding: "0.25rem",
+                  cursor: "pointer",
+                  minWidth: "150px",
+                }}
               >
                 {periods.map((period, index) => (
                   <option key={index} value={index}>
@@ -299,29 +369,42 @@ function App() {
                 ))}
               </select>
               <button
-                onClick={() => setSelectedPeriodIndex(Math.min(periods.length - 1, selectedPeriodIndex + 1))}
+                onClick={() =>
+                  setSelectedPeriodIndex(
+                    Math.min(periods.length - 1, selectedPeriodIndex + 1),
+                  )
+                }
                 disabled={selectedPeriodIndex === periods.length - 1}
-                style={{ fontSize: '0.875rem', padding: '0.25rem 0.5rem', cursor: 'pointer' }}
+                style={{
+                  fontSize: "0.875rem",
+                  padding: "0.25rem 0.5rem",
+                  cursor: "pointer",
+                }}
               >
                 →
               </button>
             </div>
           )}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
             {dataKeys.map((key, index) => (
-              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+              <label
+                key={key}
+                style={{ display: "flex", alignItems: "center", gap: "2px" }}
+              >
                 <input
                   type="checkbox"
                   checked={selectedKeys.has(key)}
                   onChange={() => toggleKey(key)}
                 />
-                <span style={{ color: COLORS[index % COLORS.length] }}>{key}</span>
+                <span style={{ color: COLORS[index % COLORS.length] }}>
+                  {key}
+                </span>
               </label>
             ))}
           </div>
         </div>
 
-        {displayMode === 'combined' ? (
+        {displayMode === "combined" ? (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={chartData}>
               <XAxis
@@ -351,17 +434,24 @@ function App() {
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+          >
             {Array.from(selectedKeys).map((key) => {
               const useAllInOne = allInOne && allPeriodsChartData;
               const data = useAllInOne ? allPeriodsChartData : chartData;
-              const xAxisKey = useAllInOne ? 'index' : 'date';
+              const xAxisKey = useAllInOne ? "index" : "date";
 
               return (
-                <div key={key} style={{ display: 'flex', flexDirection: 'column' }}>
-                  <p style={{
-                    color: COLORS[dataKeys.indexOf(key) % COLORS.length]
-                  }}>
+                <div
+                  key={key}
+                  style={{ display: "flex", flexDirection: "column" }}
+                >
+                  <p
+                    style={{
+                      color: COLORS[dataKeys.indexOf(key) % COLORS.length],
+                    }}
+                  >
                     {key}
                   </p>
                   <ResponsiveContainer width="100%" height={150}>
@@ -369,17 +459,19 @@ function App() {
                       <XAxis
                         dataKey={xAxisKey}
                         tickFormatter={useAllInOne ? undefined : formatDate}
-                        scale={useAllInOne ? 'auto' : 'time'}
+                        scale={useAllInOne ? "auto" : "time"}
                         minTickGap={40}
                       />
                       <YAxis />
-                      {!useAllInOne && <Tooltip
-                        labelFormatter={useAllInOne
-                          ? (value) => `Index: ${value}`
-                          : (value) => new Date(value).toLocaleString()
-                        }
-                      />
-                      }
+                      {!useAllInOne && (
+                        <Tooltip
+                          labelFormatter={
+                            useAllInOne
+                              ? (value) => `Index: ${value}`
+                              : (value) => new Date(value).toLocaleString()
+                          }
+                        />
+                      )}
                       {useAllInOne ? (
                         // Render a line for each period with opacity
                         periods.map((_, periodIndex) => (
@@ -387,11 +479,26 @@ function App() {
                             key={`${key}_p${periodIndex}`}
                             type="monotone"
                             dataKey={`${key}_p${periodIndex}`}
-                            stroke={selectedPeriodIndex ===periodIndex ? COLORS[dataKeys.indexOf(key) % COLORS.length] : '#999'}
-                            strokeWidth={selectedPeriodIndex ===periodIndex ? 2 : 1}
-                            strokeOpacity={selectedPeriodIndex ===periodIndex ? 1 : Math.max(1 / (periods.length / 3), 0.05)}
+                            stroke={
+                              selectedPeriodIndex === periodIndex
+                                ? COLORS[dataKeys.indexOf(key) % COLORS.length]
+                                : "#999"
+                            }
+                            strokeWidth={
+                              selectedPeriodIndex === periodIndex ? 2 : 1
+                            }
+                            strokeOpacity={
+                              selectedPeriodIndex === periodIndex
+                                ? 1
+                                : Math.max(1 / (periods.length / 3), 0.05)
+                            }
                             dot={false}
-                            style={{zIndex: selectedPeriodIndex ===periodIndex ? '20': '1'}}
+                            style={{
+                              zIndex:
+                                selectedPeriodIndex === periodIndex
+                                  ? "20"
+                                  : "1",
+                            }}
                             isAnimationActive={false}
                             connectNulls={false}
                           />
@@ -416,36 +523,29 @@ function App() {
       </div>
 
       {/* Heatmap Section */}
-      <div className="chart-section" style={{ marginTop: '2rem' }}>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <input
-              type="checkbox"
-              checked={showHeatmap}
-              onChange={(e) => setShowHeatmap(e.target.checked)}
-            />
-            <span style={{ fontSize: '0.875rem' }}>Show Heatmap</span>
-          </label>
-          {showHeatmap && (
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.875rem' }}>Series:</span>
-              <select
-                value={heatmapKey}
-                onChange={(e) => setHeatmapKey(e.target.value)}
-                style={{ fontSize: '0.875rem', padding: '0.25rem', cursor: 'pointer' }}
-              >
-                {dataKeys.map((key) => (
-                  <option key={key} value={key}>
-                    {key}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+      <div className="chart-section" style={{ marginTop: "2rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <span style={{ fontSize: "0.875rem" }}>Series:</span>
+          <select
+            value={heatmapKey}
+            onChange={(e) => setHeatmapKey(e.target.value)}
+            style={{
+              fontSize: "0.875rem",
+              padding: "0.25rem",
+              cursor: "pointer",
+            }}
+          >
+            {dataKeys.map((key) => (
+              <option key={key} value={key}>
+                {key}
+              </option>
+            ))}
+          </select>
         </div>
-
-        {showHeatmap && heatmapData.length > 0 && (
-          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '600px' }}>
+        {heatmapData.length > 0 && (
+          <div
+            style={{ overflowX: "auto", overflowY: "auto", maxHeight: "600px" }}
+          >
             <Heatmap
               data={heatmapData}
               rows={96}
@@ -453,7 +553,7 @@ function App() {
               cellWidth={2}
               cellHeight={2}
               cellGap={0}
-              colorScale={['#22c55e', '#fef9e7', '#ef4444']}
+              colorScale={["#22c55e", "#fef9e7", "#ef4444"]}
               margins={{ top: 40, right: 20, bottom: 40, left: 50 }}
               showAxes={true}
               showTooltip={true}
