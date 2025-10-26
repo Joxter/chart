@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { splitByPeriod, preprocessData, type AggregationPeriod } from './utils';
+import Heatmap from './Heatmap';
 
 const COLORS = [
   '#8884d8', '#82ca9d', '#ffc658', '#ff7c7c', '#8dd1e1',
@@ -23,6 +24,8 @@ function App() {
   const [selectedPeriodIndex, setSelectedPeriodIndex] = useState<number>(0);
   const [displayMode, setDisplayMode] = useState<'combined' | 'separate'>('combined');
   const [allInOne, setAllInOne] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [heatmapKey, setHeatmapKey] = useState<string>('');
 
   // Fetch data on mount
   useEffect(() => {
@@ -53,6 +56,7 @@ function App() {
   useEffect(() => {
     if (dataKeys.length > 0 && selectedKeys.size === 0) {
       setSelectedKeys(new Set(dataKeys.slice(0, 2)));
+      setHeatmapKey(dataKeys[0] || '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataKeys]);
@@ -140,6 +144,28 @@ function App() {
     console.log(`allPeriodsChartData: ${(performance.now() - startTime).toFixed(1)}ms`);
     return result;
   }, [periods, selectedKeys, allInOne, displayMode]);
+
+  // Prepare heatmap data: reshape into 96 rows × 365 columns
+  const heatmapData = useMemo(() => {
+    if (!calc_ps || !heatmapKey || !calc_ps[heatmapKey]) {
+      return [];
+    }
+
+    const startTime = performance.now();
+    const data = calc_ps[heatmapKey];
+
+    // For a full year: 96 time slices per day (15min intervals) × 365 days = 35,040 values
+    // We'll take the first 365 days worth of data
+    const rows = 96;
+    const cols = 365;
+    const totalCells = rows * cols;
+
+    // Take only the data we need (first 365 days)
+    const heatmapArray = data.slice(0, totalCells);
+
+    console.log(`heatmapData prepared: ${(performance.now() - startTime).toFixed(1)}ms, length: ${heatmapArray.length}`);
+    return heatmapArray;
+  }, [calc_ps, heatmapKey]);
 
   const toggleKey = useCallback((key: string) => {
     setSelectedKeys(prev => {
@@ -367,6 +393,70 @@ function App() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Heatmap Section */}
+      <div className="chart-section" style={{ marginTop: '2rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <input
+              type="checkbox"
+              checked={showHeatmap}
+              onChange={(e) => setShowHeatmap(e.target.checked)}
+            />
+            <span style={{ fontSize: '0.875rem' }}>Show Heatmap</span>
+          </label>
+          {showHeatmap && (
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.875rem' }}>Series:</span>
+              <select
+                value={heatmapKey}
+                onChange={(e) => setHeatmapKey(e.target.value)}
+                style={{ fontSize: '0.875rem', padding: '0.25rem', cursor: 'pointer' }}
+              >
+                {dataKeys.map((key) => (
+                  <option key={key} value={key}>
+                    {key}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {showHeatmap && heatmapData.length > 0 && (
+          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '600px' }}>
+            <Heatmap
+              data={heatmapData}
+              rows={96}
+              cols={365}
+              cellWidth={2}
+              cellHeight={2}
+              cellGap={0}
+              colorScale={['#22c55e', '#fef9e7', '#ef4444']}
+              margins={{ top: 40, right: 20, bottom: 40, left: 50 }}
+              showAxes={true}
+              showTooltip={true}
+              showLegend={true}
+              xAxisLabels={(col) => {
+                // Show month labels at approximate month boundaries
+                const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const monthIndex = monthStarts.indexOf(col);
+                return monthIndex !== -1 ? monthNames[monthIndex] : '';
+              }}
+              yAxisLabels={(row) => {
+                // Show hour labels every 12 rows (3 hours)
+                if (row % 12 === 0) {
+                  const hour = Math.floor(row / 4);
+                  return `${hour.toString().padStart(2, '0')}:00`;
+                }
+                return '';
+              }}
+              valueFormatter={(v) => v.toFixed(1)}
+            />
           </div>
         )}
       </div>
