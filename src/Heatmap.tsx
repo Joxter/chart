@@ -19,6 +19,7 @@ export interface HeatmapProps {
   valueFormatter?: (value: number) => string;
   minValue?: number;
   maxValue?: number;
+  highlightedCols?: number[];
 }
 
 interface TooltipState {
@@ -46,6 +47,7 @@ export default function Heatmap({
   valueFormatter = (v) => v.toFixed(2),
   minValue,
   maxValue,
+  highlightedCols = [],
 }: HeatmapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -222,7 +224,7 @@ export default function Heatmap({
     console.time('Heatmap render');
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        const index = row * cols + col;
+        const index = col * rows + row;
         if (index >= data.length) break;
 
         const value = data[index];
@@ -318,7 +320,30 @@ export default function Heatmap({
         ctx.fillText(valueFormatter(midValue), legendX + legendWidth / 2, legendY + legendHeight + 3);
       }
     }
-  }, [data, rows, cols, cellWidth, cellHeight, cellGap, colorScale, margins, showAxes, showLegend, dimensions, axisLabels, colorPalette, valueFormatter]);
+
+    // Draw ticks for highlighted columns (selected period)
+    if (highlightedCols.length > 0) {
+      ctx.strokeStyle = '#ff6b00';
+      ctx.lineWidth = 2;
+      ctx.fillStyle = '#ff6b00';
+
+      highlightedCols.forEach((col) => {
+        const x = margins.left + col * totalCellWidth;
+
+        // Draw tick mark at top
+        ctx.beginPath();
+        ctx.moveTo(x, margins.top - 8);
+        ctx.lineTo(x, margins.top - 2);
+        ctx.stroke();
+
+        // Draw tick mark at bottom
+        ctx.beginPath();
+        ctx.moveTo(x, margins.top + dimensions.chartHeight + 2);
+        ctx.lineTo(x, margins.top + dimensions.chartHeight + 8);
+        ctx.stroke();
+      });
+    }
+  }, [data, rows, cols, cellWidth, cellHeight, cellGap, colorScale, margins, showAxes, showLegend, dimensions, axisLabels, colorPalette, valueFormatter, highlightedCols]);
 
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
     if (!showTooltip || !canvasRef.current) return;
@@ -335,7 +360,7 @@ export default function Heatmap({
     const row = Math.floor((y - margins.top) / totalCellHeight);
 
     if (row >= 0 && row < rows && col >= 0 && col < cols) {
-      const index = row * cols + col;
+      const index = col * rows + row;
       if (index < data.length) {
         const value = data[index];
         if (value !== null && value !== undefined && !isNaN(value)) {
@@ -376,7 +401,7 @@ export default function Heatmap({
     const row = Math.floor((y - margins.top) / totalCellHeight);
 
     if (row >= 0 && row < rows && col >= 0 && col < cols) {
-      const index = row * cols + col;
+      const index = col * rows + row;
       if (index < data.length) {
         const value = data[index];
         if (value !== null && value !== undefined && !isNaN(value)) {

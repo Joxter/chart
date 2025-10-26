@@ -160,29 +160,51 @@ function App() {
     return result;
   }, [periods, selectedKeys, allInOne, displayMode]);
 
-  // Prepare heatmap data: reshape into 96 rows × 365 columns
+  // Prepare heatmap data: show whole year with highlighted selected period
   const heatmapData = useMemo(() => {
     if (!calc_ps || !heatmapKey || !calc_ps[heatmapKey]) {
-      return [];
+      return { data: [], rows: 0, cols: 0, highlightedCols: [] };
     }
 
     const startTime = performance.now();
     const data = calc_ps[heatmapKey];
 
-    // For a full year: 96 time slices per day (15min intervals) × 365 days = 35,040 values
-    // We'll take the first 365 days worth of data
+    // Each day has 96 time slices (15-minute intervals)
     const rows = 96;
-    const cols = 365;
-    const totalCells = rows * cols;
+    const cols = Math.floor(data.length / rows);
 
-    // Take only the data we need (first 365 days)
-    const heatmapArray = data.slice(0, totalCells);
+    // Take only complete days for the whole year
+    const heatmapArray = data.slice(0, rows * cols);
+
+    // Calculate which columns (days) are in the selected period
+    const highlightedCols: number[] = [];
+    if (periods.length > 0 && aggregation !== "none") {
+      const currentPeriod = periods[selectedPeriodIndex] || periods[0];
+      const periodDates = currentPeriod.data.date;
+      const allDates = calc_ps.date;
+
+      if (periodDates && periodDates.length > 0 && allDates) {
+        // Find the start index of the period in the full dataset
+        const periodStartDate = periodDates[0];
+        const periodEndDate = periodDates[periodDates.length - 1];
+
+        for (let col = 0; col < cols; col++) {
+          const dayStartIndex = col * 96;
+          if (dayStartIndex < allDates.length) {
+            const dayDate = allDates[dayStartIndex];
+            if (dayDate >= periodStartDate && dayDate <= periodEndDate) {
+              highlightedCols.push(col);
+            }
+          }
+        }
+      }
+    }
 
     console.log(
-      `heatmapData prepared: ${(performance.now() - startTime).toFixed(1)}ms, length: ${heatmapArray.length}`,
+      `heatmapData prepared: ${(performance.now() - startTime).toFixed(1)}ms, length: ${heatmapArray.length}, rows: ${rows}, cols: ${cols}, highlighted: ${highlightedCols.length}`,
     );
-    return heatmapArray;
-  }, [calc_ps, heatmapKey]);
+    return { data: heatmapArray, rows, cols, highlightedCols };
+  }, [calc_ps, heatmapKey, periods, selectedPeriodIndex, aggregation]);
 
   const toggleKey = useCallback((key: string) => {
     setSelectedKeys((prev) => {
@@ -218,24 +240,37 @@ function App() {
 
   // Memoize heatmap label functions to prevent unnecessary re-renders
   const heatmapXAxisLabels = useCallback((col: number) => {
-    const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-    const monthIndex = monthStarts.indexOf(col);
-    return monthIndex !== -1 ? monthNames[monthIndex] : "";
-  }, []);
+    if (!calc_ps || !calc_ps.date) return "";
+
+    const dates = calc_ps.date;
+    const dateIndex = col * 96; // 96 time slices per day
+
+    if (dateIndex >= dates.length) return "";
+
+    const currentDate = new Date(dates[dateIndex]);
+    const currentMonth = currentDate.getMonth();
+
+    // Check if this is the first column OR if the month changed from previous column
+    let isMonthStart = col === 0;
+    if (col > 0) {
+      const prevDateIndex = (col - 1) * 96;
+      if (prevDateIndex < dates.length) {
+        const prevDate = new Date(dates[prevDateIndex]);
+        const prevMonth = prevDate.getMonth();
+        isMonthStart = currentMonth !== prevMonth;
+      }
+    }
+
+    if (isMonthStart) {
+      const monthNames = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+      ];
+      return monthNames[currentMonth];
+    }
+
+    return "";
+  }, [calc_ps]);
 
   const heatmapYAxisLabels = useCallback((row: number) => {
     if (row % 12 === 0) {
@@ -542,14 +577,14 @@ function App() {
             ))}
           </select>
         </div>
-        {heatmapData.length > 0 && (
+        {heatmapData.data.length > 0 && (
           <div
             style={{ overflowX: "auto", overflowY: "auto", maxHeight: "600px" }}
           >
             <Heatmap
-              data={heatmapData}
-              rows={96}
-              cols={365}
+              data={heatmapData.data}
+              rows={heatmapData.rows}
+              cols={heatmapData.cols}
               cellWidth={2}
               cellHeight={2}
               cellGap={0}
@@ -561,6 +596,7 @@ function App() {
               xAxisLabels={heatmapXAxisLabels}
               yAxisLabels={heatmapYAxisLabels}
               valueFormatter={heatmapValueFormatter}
+              highlightedCols={heatmapData.highlightedCols}
             />
           </div>
         )}
