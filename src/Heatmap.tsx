@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 
 export interface HeatmapProps {
@@ -49,12 +49,151 @@ export default function Heatmap({
 }: HeatmapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rectCacheRef = useRef<DOMRect | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false,
     x: 0,
     y: 0,
     content: '',
   });
+
+  // Memoize dimension calculations
+  const dimensions = useMemo(() => {
+    const totalCellWidth = cellWidth + cellGap;
+    const totalCellHeight = cellHeight + cellGap;
+    const chartWidth = cols * totalCellWidth - cellGap;
+    const chartHeight = rows * totalCellHeight - cellGap;
+    const width = chartWidth + margins.left + margins.right;
+    const height = chartHeight + margins.top + margins.bottom;
+
+    return {
+      totalCellWidth,
+      totalCellHeight,
+      chartWidth,
+      chartHeight,
+      width,
+      height,
+    };
+  }, [cellWidth, cellHeight, cellGap, cols, rows, margins]);
+
+  // Create color palette with fast lookup (OPTIMIZED: 256 colors instead of 35k)
+  const colorPalette = useMemo(() => {
+    console.time('Create color palette');
+    const dataMin = minValue ?? d3.min(data) ?? 0;
+    const dataMax = maxValue ?? d3.max(data) ?? 1;
+    const hasNegative = dataMin < 0;
+    const useDiverging = hasNegative && colorScale.length === 3;
+    const absMax = useDiverging ? Math.max(Math.abs(dataMin), Math.abs(dataMax)) : 0;
+
+    // Create D3 color scale function (only used for palette generation)
+    let colorFn: (value: number) => string;
+    if (useDiverging) {
+      colorFn = d3.scaleLinear<string>()
+        .domain([-absMax, 0, absMax])
+        .range([colorScale[0], colorScale[1], colorScale[2]])
+        .clamp(true);
+    } else {
+      const colors = colorScale.length === 3 ? [colorScale[1], colorScale[2]] : colorScale;
+      colorFn = d3.scaleSequential(d3.interpolateRgb(colors[0], colors[1]))
+        .domain([dataMin, dataMax]);
+    }
+
+    // Pre-generate palette of 256 distinct colors
+    const paletteSize = 256;
+    const palette = new Array(paletteSize);
+
+    if (useDiverging) {
+      for (let i = 0; i < paletteSize; i++) {
+        const t = i / (paletteSize - 1); // 0 to 1
+        const value = -absMax + t * (2 * absMax); // Map to [-absMax, +absMax]
+        palette[i] = colorFn(value);
+      }
+    } else {
+      for (let i = 0; i < paletteSize; i++) {
+        const t = i / (paletteSize - 1); // 0 to 1
+        const value = dataMin + t * (dataMax - dataMin); // Map to [dataMin, dataMax]
+        palette[i] = colorFn(value);
+      }
+    }
+
+    // Fast value-to-color lookup function using simple math (no binary search needed)
+    const getColor = (value: number): string | null => {
+      if (value === null || value === undefined || isNaN(value)) return null;
+
+      let index: number;
+      if (useDiverging) {
+        // Map value from [-absMax, absMax] to [0, paletteSize-1]
+        const t = (value + absMax) / (2 * absMax);
+        index = Math.round(t * (paletteSize - 1));
+      } else {
+        // Map value from [dataMin, dataMax] to [0, paletteSize-1]
+        const t = (value - dataMin) / (dataMax - dataMin);
+        index = Math.round(t * (paletteSize - 1));
+      }
+
+      // Clamp to valid range
+      index = Math.max(0, Math.min(paletteSize - 1, index));
+      return palette[index];
+    };
+
+    console.timeEnd('Create color palette');
+    return { dataMin, dataMax, useDiverging, absMax, palette, getColor };
+  }, [data, minValue, maxValue, colorScale]);
+
+  // Pre-calculate which axis labels to show (OPTIMIZATION)
+  const axisLabels = useMemo(() => {
+    const xLabels: Array<{ col: number; label: string; x: number }> = [];
+    const yLabels: Array<{ row: number; label: string; y: number }> = [];
+
+    if (showAxes) {
+      // X-axis labels
+      for (let col = 0; col < cols; col++) {
+        let label: string = '';
+        if (typeof xAxisLabels === 'function') {
+          label = xAxisLabels(col);
+        } else if (Array.isArray(xAxisLabels)) {
+          label = xAxisLabels[col] || '';
+        } else {
+          const xLabelStep = Math.ceil(cols / 12);
+          label = col % xLabelStep === 0 ? `Day ${col + 1}` : '';
+        }
+
+        if (label) {
+          xLabels.push({
+            col,
+            label,
+            x: margins.left + col * dimensions.totalCellWidth + cellWidth / 2,
+          });
+        }
+      }
+
+      // Y-axis labels
+      for (let row = 0; row < rows; row++) {
+        let label: string = '';
+        if (typeof yAxisLabels === 'function') {
+          label = yAxisLabels(row);
+        } else if (Array.isArray(yAxisLabels)) {
+          label = yAxisLabels[row] || '';
+        } else {
+          if (row % 4 === 0) {
+            const hour = Math.floor(row / 4);
+            const minute = (row % 4) * 15;
+            label = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+          }
+        }
+
+        if (label) {
+          yLabels.push({
+            row,
+            label,
+            y: margins.top + row * dimensions.totalCellHeight + cellHeight / 2,
+          });
+        }
+      }
+    }
+
+    return { xLabels, yLabels };
+  }, [showAxes, cols, rows, xAxisLabels, yAxisLabels, margins, dimensions, cellWidth]);
 
   useEffect(() => {
     if (!canvasRef.current || !data || data.length === 0) return;
@@ -63,13 +202,7 @@ export default function Heatmap({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Calculate dimensions
-    const totalCellWidth = cellWidth + cellGap;
-    const totalCellHeight = cellHeight + cellGap;
-    const chartWidth = cols * totalCellWidth - cellGap;
-    const chartHeight = rows * totalCellHeight - cellGap;
-    const width = chartWidth + margins.left + margins.right;
-    const height = chartHeight + margins.top + margins.bottom;
+    const { width, height, totalCellWidth, totalCellHeight, chartWidth } = dimensions;
 
     // Set canvas size with device pixel ratio for crisp rendering
     const dpr = window.devicePixelRatio || 1;
@@ -82,106 +215,52 @@ export default function Heatmap({
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    // Calculate color scale
-    const dataMin = minValue ?? d3.min(data) ?? 0;
-    const dataMax = maxValue ?? d3.max(data) ?? 1;
+    // Update cached rect for mouse events
+    rectCacheRef.current = canvas.getBoundingClientRect();
 
-    // Determine if we should use diverging scale (when data has negative values)
-    const hasNegative = dataMin < 0;
-    const useDiverging = hasNegative && colorScale.length === 3;
-
-    let color: (value: number) => string;
-    if (useDiverging) {
-      // Diverging scale: negative -> zero -> positive
-      const absMax = Math.max(Math.abs(dataMin), Math.abs(dataMax));
-      color = d3.scaleLinear<string>()
-        .domain([-absMax, 0, absMax])
-        .range([colorScale[0], colorScale[1], colorScale[2]])
-        .clamp(true);
-    } else {
-      // Sequential scale: min -> max
-      const colors = colorScale.length === 3 ? [colorScale[1], colorScale[2]] : colorScale;
-      color = d3.scaleSequential(d3.interpolateRgb(colors[0], colors[1]))
-        .domain([dataMin, dataMax]);
-    }
-
-    // Draw cells
+    // Draw cells using palette lookup (OPTIMIZED: 256 colors, fast math lookup)
     console.time('Heatmap render');
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const index = row * cols + col;
-        if (index >= data.length) continue;
+        if (index >= data.length) break;
 
         const value = data[index];
-        if (value === null || value === undefined || isNaN(value)) continue;
+        const color = colorPalette.getColor(value);
+        if (!color) continue;
 
         const x = margins.left + col * totalCellWidth;
         const y = margins.top + row * totalCellHeight;
 
-        ctx.fillStyle = color(value);
+        ctx.fillStyle = color;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
     }
     console.timeEnd('Heatmap render');
 
-    // Draw axes if enabled
+    // Draw axes using pre-computed labels (OPTIMIZED)
     if (showAxes) {
       ctx.fillStyle = '#333';
       ctx.font = '10px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
 
       // X-axis labels (bottom)
-      for (let col = 0; col < cols; col++) {
-        let label: string;
-        if (typeof xAxisLabels === 'function') {
-          label = xAxisLabels(col);
-        } else if (Array.isArray(xAxisLabels)) {
-          label = xAxisLabels[col] || '';
-        } else {
-          // Default: show ~12 labels
-          const xLabelStep = Math.ceil(cols / 12);
-          label = col % xLabelStep === 0 ? `Day ${col + 1}` : '';
-        }
-
-        // Only render if label is non-empty
-        if (label) {
-          const x = margins.left + col * totalCellWidth + cellWidth / 2;
-          const y = margins.top + chartHeight + 5;
-          ctx.fillText(label, x, y);
-        }
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const yPos = margins.top + dimensions.chartHeight + 5;
+      for (const { label, x } of axisLabels.xLabels) {
+        ctx.fillText(label, x, yPos);
       }
 
       // Y-axis labels (left)
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
-      for (let row = 0; row < rows; row++) {
-        let label: string;
-        if (typeof yAxisLabels === 'function') {
-          label = yAxisLabels(row);
-        } else if (Array.isArray(yAxisLabels)) {
-          label = yAxisLabels[row] || '';
-        } else {
-          // Default: show time labels every 4 rows (1 hour)
-          if (row % 4 === 0) {
-            const hour = Math.floor(row / 4);
-            const minute = (row % 4) * 15;
-            label = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-          } else {
-            label = '';
-          }
-        }
-
-        // Only render if label is non-empty
-        if (label) {
-          const x = margins.left - 5;
-          const y = margins.top + row * totalCellHeight + cellHeight / 2;
-          ctx.fillText(label, x, y);
-        }
+      const xPos = margins.left - 5;
+      for (const { label, y } of axisLabels.yLabels) {
+        ctx.fillText(label, xPos, y);
       }
     }
 
-    // Draw legend if enabled
+    // Draw legend using color palette (OPTIMIZED)
     if (showLegend) {
       const legendWidth = 200;
       const legendHeight = 15;
@@ -191,16 +270,16 @@ export default function Heatmap({
       // Draw gradient (horizontal)
       const gradient = ctx.createLinearGradient(legendX, 0, legendX + legendWidth, 0);
 
-      if (useDiverging) {
+      if (colorPalette.useDiverging) {
         // Diverging gradient: negative -> zero -> positive
-        gradient.addColorStop(0, colorScale[0]); // Negative (left)
-        gradient.addColorStop(0.5, colorScale[1]); // Zero (center)
-        gradient.addColorStop(1, colorScale[2]); // Positive (right)
+        gradient.addColorStop(0, colorScale[0]);
+        gradient.addColorStop(0.5, colorScale[1]);
+        gradient.addColorStop(1, colorScale[2]);
       } else {
         // Sequential gradient: min -> max
         const colors = colorScale.length === 3 ? [colorScale[1], colorScale[2]] : colorScale;
-        gradient.addColorStop(0, colors[0]); // Min at left
-        gradient.addColorStop(1, colors[1]); // Max at right
+        gradient.addColorStop(0, colors[0]);
+        gradient.addColorStop(1, colors[1]);
       }
 
       ctx.fillStyle = gradient;
@@ -216,50 +295,41 @@ export default function Heatmap({
       ctx.font = '11px sans-serif';
       ctx.textBaseline = 'top';
 
-      if (useDiverging) {
+      if (colorPalette.useDiverging) {
         // For diverging scale, show symmetric min/max around zero
-        const absMax = Math.max(Math.abs(dataMin), Math.abs(dataMax));
-
-        // Negative value (left)
         ctx.textAlign = 'left';
-        ctx.fillText(valueFormatter(-absMax), legendX, legendY + legendHeight + 3);
+        ctx.fillText(valueFormatter(-colorPalette.absMax), legendX, legendY + legendHeight + 3);
 
-        // Zero (center)
         ctx.textAlign = 'center';
         ctx.fillText(valueFormatter(0), legendX + legendWidth / 2, legendY + legendHeight + 3);
 
-        // Positive value (right)
         ctx.textAlign = 'right';
-        ctx.fillText(valueFormatter(absMax), legendX + legendWidth, legendY + legendHeight + 3);
+        ctx.fillText(valueFormatter(colorPalette.absMax), legendX + legendWidth, legendY + legendHeight + 3);
       } else {
         // For sequential scale, show actual min/max
-        // Min value (left)
         ctx.textAlign = 'left';
-        ctx.fillText(valueFormatter(dataMin), legendX, legendY + legendHeight + 3);
+        ctx.fillText(valueFormatter(colorPalette.dataMin), legendX, legendY + legendHeight + 3);
 
-        // Max value (right)
         ctx.textAlign = 'right';
-        ctx.fillText(valueFormatter(dataMax), legendX + legendWidth, legendY + legendHeight + 3);
+        ctx.fillText(valueFormatter(colorPalette.dataMax), legendX + legendWidth, legendY + legendHeight + 3);
 
-        // Middle value (center)
         ctx.textAlign = 'center';
-        const midValue = (dataMin + dataMax) / 2;
+        const midValue = (colorPalette.dataMin + colorPalette.dataMax) / 2;
         ctx.fillText(valueFormatter(midValue), legendX + legendWidth / 2, legendY + legendHeight + 3);
       }
     }
-  }, [data, rows, cols, cellWidth, cellHeight, cellGap, colorScale, margins, showAxes, showLegend, xAxisLabels, yAxisLabels, minValue, maxValue, valueFormatter]);
+  }, [data, rows, cols, cellWidth, cellHeight, cellGap, colorScale, margins, showAxes, showLegend, dimensions, axisLabels, colorPalette, valueFormatter]);
 
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
     if (!showTooltip || !canvasRef.current) return;
 
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
+    // Use cached rect (OPTIMIZED)
+    const rect = rectCacheRef.current || canvasRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    // Calculate which cell is being hovered
-    const totalCellWidth = cellWidth + cellGap;
-    const totalCellHeight = cellHeight + cellGap;
+    // Use pre-computed dimensions (OPTIMIZED)
+    const { totalCellWidth, totalCellHeight } = dimensions;
 
     const col = Math.floor((x - margins.left) / totalCellWidth);
     const row = Math.floor((y - margins.top) / totalCellHeight);
@@ -294,13 +364,13 @@ export default function Heatmap({
   const handleClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
     if (!onCellClick || !canvasRef.current) return;
 
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
+    // Use cached rect (OPTIMIZED)
+    const rect = rectCacheRef.current || canvasRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    const totalCellWidth = cellWidth + cellGap;
-    const totalCellHeight = cellHeight + cellGap;
+    // Use pre-computed dimensions (OPTIMIZED)
+    const { totalCellWidth, totalCellHeight } = dimensions;
 
     const col = Math.floor((x - margins.left) / totalCellWidth);
     const row = Math.floor((y - margins.top) / totalCellHeight);

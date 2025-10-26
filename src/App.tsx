@@ -196,6 +196,24 @@ function App() {
     });
   }, [aggregation]);
 
+  // Memoize heatmap label functions to prevent unnecessary re-renders
+  const heatmapXAxisLabels = useCallback((col: number) => {
+    const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthIndex = monthStarts.indexOf(col);
+    return monthIndex !== -1 ? monthNames[monthIndex] : '';
+  }, []);
+
+  const heatmapYAxisLabels = useCallback((row: number) => {
+    if (row % 12 === 0) {
+      const hour = Math.floor(row / 4);
+      return `${hour.toString().padStart(2, '0')}:00`;
+    }
+    return '';
+  }, []);
+
+  const heatmapValueFormatter = useCallback((v: number) => v.toFixed(1), []);
+
   if (loading) {
     return (
       <div className="container">
@@ -440,22 +458,9 @@ function App() {
               showAxes={true}
               showTooltip={true}
               showLegend={true}
-              xAxisLabels={(col) => {
-                // Show month labels at approximate month boundaries
-                const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                const monthIndex = monthStarts.indexOf(col);
-                return monthIndex !== -1 ? monthNames[monthIndex] : '';
-              }}
-              yAxisLabels={(row) => {
-                // Show hour labels every 12 rows (3 hours)
-                if (row % 12 === 0) {
-                  const hour = Math.floor(row / 4);
-                  return `${hour.toString().padStart(2, '0')}:00`;
-                }
-                return '';
-              }}
-              valueFormatter={(v) => v.toFixed(1)}
+              xAxisLabels={heatmapXAxisLabels}
+              yAxisLabels={heatmapYAxisLabels}
+              valueFormatter={heatmapValueFormatter}
             />
           </div>
         )}
