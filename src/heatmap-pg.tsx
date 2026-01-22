@@ -24,7 +24,7 @@ const COLORS = [
   "#f06292",
 ];
 
-function App() {
+export function App() {
   const [calc_ps, setCalcPs] = useState<Record<string, number[]> | null>(null);
   const [loading, setLoading] = useState(true);
   const [aggregation, setAggregation] = useState<AggregationPeriod>("week");
@@ -239,38 +239,51 @@ function App() {
   );
 
   // Memoize heatmap label functions to prevent unnecessary re-renders
-  const heatmapXAxisLabels = useCallback((col: number) => {
-    if (!calc_ps || !calc_ps.date) return "";
+  const heatmapXAxisLabels = useCallback(
+    (col: number) => {
+      if (!calc_ps || !calc_ps.date) return "";
 
-    const dates = calc_ps.date;
-    const dateIndex = col * 96; // 96 time slices per day
+      const dates = calc_ps.date;
+      const dateIndex = col * 96; // 96 time slices per day
 
-    if (dateIndex >= dates.length) return "";
+      if (dateIndex >= dates.length) return "";
 
-    const currentDate = new Date(dates[dateIndex]);
-    const currentMonth = currentDate.getMonth();
+      const currentDate = new Date(dates[dateIndex]);
+      const currentMonth = currentDate.getMonth();
 
-    // Check if this is the first column OR if the month changed from previous column
-    let isMonthStart = col === 0;
-    if (col > 0) {
-      const prevDateIndex = (col - 1) * 96;
-      if (prevDateIndex < dates.length) {
-        const prevDate = new Date(dates[prevDateIndex]);
-        const prevMonth = prevDate.getMonth();
-        isMonthStart = currentMonth !== prevMonth;
+      // Check if this is the first column OR if the month changed from previous column
+      let isMonthStart = col === 0;
+      if (col > 0) {
+        const prevDateIndex = (col - 1) * 96;
+        if (prevDateIndex < dates.length) {
+          const prevDate = new Date(dates[prevDateIndex]);
+          const prevMonth = prevDate.getMonth();
+          isMonthStart = currentMonth !== prevMonth;
+        }
       }
-    }
 
-    if (isMonthStart) {
-      const monthNames = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-      ];
-      return monthNames[currentMonth];
-    }
+      if (isMonthStart) {
+        const monthNames = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return monthNames[currentMonth];
+      }
 
-    return "";
-  }, [calc_ps]);
+      return "";
+    },
+    [calc_ps],
+  );
 
   const heatmapYAxisLabels = useCallback((row: number) => {
     if (row % 12 === 0) {
@@ -604,5 +617,3 @@ function App() {
     </div>
   );
 }
-
-export default App;
