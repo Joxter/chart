@@ -1,3 +1,38 @@
+/*
+ * renderTimeSeriesChart(params: Params) -> SVG string
+ *
+ * Generates static SVG charts for PDF reports. Uses D3 for scales/line generation.
+ *
+ * PARAMS:
+ *   title?: string         - chart title (optional)
+ *   timeSeries: []         - array of {label, color, data: number[]}
+ *   time: Date[]           - x-axis dates (same length as data arrays)
+ *   timeFormat: fn         - (date: Date) => string for x-axis labels
+ *   legendWidth: number[]  - column widths for legend, e.g. [120, 120] = 2 columns
+ *   showAxis: boolean      - show X/Y axes
+ *   layoutRows: []         - vertical order of elements with spacing
+ *                            e.g. ["title", 12, "chart", 16, "legend"]
+ *                            numbers = pixel spacing between elements
+ *
+ * LAYOUT:
+ *   - Elements positioned with absolute coords (no <g transform>)
+ *   - Axes always attached to "chart" (Y-left, X-bottom)
+ *   - CHART.width/height = fixed axis line length
+ *   - CHART.inset = data padding inside chart area
+ *
+ * CONSTANTS (adjust as needed):
+ *   TITLE    - fontSize, height, color
+ *   CHART    - width, height, lineWidth, inset{top, right}
+ *   AXIS     - leftWidth, bottomHeight, fontSize, tickSize, tickCount
+ *   LEGEND   - rowHeight, colorBoxSize, fontSize
+ *   PADDING  - top, right (outer SVG margins)
+ *
+ * INTERNALS:
+ *   calculateLayout(params) -> Layout   - computes positions for all elements
+ *   renderTitle/AxisY/AxisX/ChartLines/Legend - render functions
+ *   All render fns: (params, layout, scales?) -> string
+ */
+
 import * as d3 from "d3";
 
 type TimeSeriesItem = {
@@ -13,11 +48,6 @@ type Params = {
   timeFormat: (date: Date) => string;
   legendWidth: number[];
   showAxis: boolean;
-  // layoutRows: чтоб управлять очередностью элементов и отступами между ними
-  //   например ['title', 10, 'chart', 20, 'legend']
-  //            ['title', 0, 'legend', 5, 'chart']
-  //            ['title', 20,'chart']
-  //   предположим что пользователь не будет писать элементы несколько раз
   layoutRows: ("title" | "legend" | "chart" | number)[];
 };
 
