@@ -7,12 +7,18 @@ type TimeSeriesItem = {
 };
 
 type Params = {
-  title: string | null;
+  title?: string | null;
   timeSeries: TimeSeriesItem[];
   time: Date[];
   timeFormat: (date: Date) => string;
   legendWidth: number[];
   showAxis: boolean;
+  // layoutRows: чтоб управлять очередностью элементов и отступами между ними
+  //   например ['title', 10, 'chart', 20, 'legend']
+  //            ['title', 0, 'legend', 5, 'chart']
+  //            ['title', 20,'chart']
+  //   предположим что пользователь не будет писать элементы несколько раз
+  layoutRows: ("title" | "legend" | "chart" | number)[];
 };
 
 const TITLE = {
@@ -27,14 +33,14 @@ const CHART = {
   height: 200,
   lineWidth: 2,
   inset: {
-    top: 8, // отступ данных от верхнего края области графика
+    top: 5, // отступ данных от верхнего края области графика
     right: 12, // отступ данных от правого края области графика
   },
 };
 
 const AXIS = {
   leftWidth: 60,
-  bottomHeight: 30,
+  bottomHeight: 20,
   fontSize: 12,
   fontFamily: "sans-serif",
   color: "#666",
@@ -57,68 +63,72 @@ const LEGEND = {
   color: "#333",
 };
 
-const SPACING = {
-  titleToChart: 12,
-  chartToLegend: 16,
-};
-
 // --- Layout Calculator ---
 
 type Layout = {
   totalWidth: number;
   totalHeight: number;
   title: { x: number; y: number } | null;
-  chart: { x: number; y: number; width: number; height: number };
+  chart: { x: number; y: number; width: number; height: number } | null;
   axisY: { x: number; y: number } | null;
   axisX: { x: number; y: number } | null;
-  legend: { x: number; y: number; rows: number };
+  legend: { x: number; y: number; rows: number } | null;
 };
 
 function calculateLayout(params: Params): Layout {
-  const hasTitle = params.title !== null;
   const hasAxis = params.showAxis;
+  const chartX = hasAxis ? AXIS.leftWidth : 0;
+
+  // Для легенды
   const columnCount = params.legendWidth.length;
-  const legendRows = Math.ceil(params.timeSeries.length / columnCount);
+  const legendRowCount = Math.ceil(params.timeSeries.length / columnCount);
 
   let currentY = PADDING.top;
 
-  // Title
-  const titleLayout = hasTitle ? { x: 0, y: currentY } : null;
-  if (hasTitle) {
-    currentY += TITLE.height + SPACING.titleToChart;
+  let titleLayout: Layout["title"] = null;
+  let chartLayout: Layout["chart"] = null;
+  let axisYLayout: Layout["axisY"] = null;
+  let axisXLayout: Layout["axisX"] = null;
+  let legendLayout: Layout["legend"] = null;
+
+  for (const item of params.layoutRows) {
+    if (typeof item === "number") {
+      // Это отступ
+      currentY += item;
+    } else if (item === "title") {
+      if (params.title !== null) {
+        titleLayout = { x: chartX, y: currentY };
+        currentY += TITLE.height;
+      }
+    } else if (item === "chart") {
+      chartLayout = {
+        x: chartX,
+        y: currentY,
+        width: CHART.width,
+        height: CHART.height,
+      };
+      if (hasAxis) {
+        axisYLayout = { x: 0, y: currentY };
+        axisXLayout = { x: chartX, y: currentY + CHART.height };
+      }
+      currentY += CHART.height;
+      if (hasAxis) {
+        currentY += AXIS.bottomHeight;
+      }
+    } else if (item === "legend") {
+      legendLayout = { x: chartX, y: currentY, rows: legendRowCount };
+      currentY += legendRowCount * LEGEND.rowHeight;
+    }
   }
 
-  // Chart area offset
-  const chartX = hasAxis ? AXIS.leftWidth : 0;
-  const chartY = currentY;
-  const chartWidth = CHART.width;
-  const chartHeight = CHART.height;
-
-  // Axis Y (слева от графика)
-  const axisYLayout = hasAxis ? { x: 0, y: chartY } : null;
-
-  // Axis X (снизу графика)
-  const axisXLayout = hasAxis ? { x: chartX, y: chartY + chartHeight } : null;
-
-  currentY = chartY + chartHeight;
-  if (hasAxis) {
-    currentY += AXIS.bottomHeight;
-  }
-
-  // Legend
-  currentY += SPACING.chartToLegend;
-  const legendLayout = { x: chartX, y: currentY, rows: legendRows };
-  currentY += legendRows * LEGEND.rowHeight;
-
-  // Total dimensions
-  const totalWidth = chartX + chartWidth + PADDING.right;
+  const totalWidth = chartX + CHART.width + PADDING.right;
   const totalHeight = currentY;
 
   return {
     totalWidth,
     totalHeight,
     title: titleLayout,
-    chart: { x: chartX, y: chartY, width: chartWidth, height: chartHeight },
+    chart: chartLayout,
     axisY: axisYLayout,
     axisX: axisXLayout,
     legend: legendLayout,
@@ -146,7 +156,7 @@ function renderTitle(params: Params, layout: Layout): string {
   >${params.title}</text>`;
 }
 
-function renderAxisY(params: Params, layout: Layout, scales: Scales): string {
+function renderAxisY(_params: Params, layout: Layout, scales: Scales): string {
   if (!layout.axisY) return "";
 
   const ticks = scales.y.ticks(AXIS.tickCount);
@@ -237,6 +247,7 @@ function renderChartLines(
   layout: Layout,
   scales: Scales,
 ): string {
+  if (!layout.chart) return "";
   const { x: offsetX, y: offsetY } = layout.chart;
 
   return params.timeSeries
@@ -258,6 +269,7 @@ function renderChartLines(
 }
 
 function renderLegend(params: Params, layout: Layout): string {
+  if (!layout.legend) return "";
   const { x: startX, y: startY } = layout.legend;
   const columnCount = params.legendWidth.length;
 
@@ -364,6 +376,7 @@ export function ChartPg() {
     timeFormat: (d) => d3.timeFormat("%b %d")(d),
     legendWidth: [120, 120],
     showAxis: true,
+    layoutRows: ["title", 12, "chart", 16, "legend"],
   });
 
   return (
@@ -371,30 +384,32 @@ export function ChartPg() {
       <h2>Charts</h2>
       <div dangerouslySetInnerHTML={{ __html: svg }}></div>
 
-      <h3>Without title</h3>
+      <h3>Legend before chart</h3>
       <div
         dangerouslySetInnerHTML={{
           __html: renderTimeSeriesChart({
-            title: null,
+            title: "Legend First",
             timeSeries: testTimeSeries,
             time: testTime,
             timeFormat: (d) => d3.timeFormat("%b %d")(d),
             legendWidth: [120, 120],
             showAxis: true,
+            layoutRows: ["title", 12, "legend", 16, "chart"],
           }),
         }}
       ></div>
 
-      <h3>Without axis</h3>
+      <h3>Chart only (no legend)</h3>
       <div
         dangerouslySetInnerHTML={{
           __html: renderTimeSeriesChart({
-            title: "No Axis Chart",
+            // title: "Chart Only",
             timeSeries: testTimeSeries,
             time: testTime,
             timeFormat: (d) => d3.timeFormat("%b %d")(d),
             legendWidth: [100, 100, 100],
-            showAxis: false,
+            showAxis: true,
+            layoutRows: ["chart"],
           }),
         }}
       ></div>
