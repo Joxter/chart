@@ -26,6 +26,10 @@ const CHART = {
   width: 600,
   height: 200,
   lineWidth: 2,
+  inset: {
+    top: 8, // отступ данных от верхнего края области графика
+    right: 12, // отступ данных от правого края области графика
+  },
 };
 
 const AXIS = {
@@ -36,6 +40,12 @@ const AXIS = {
   color: "#666",
   tickSize: 5,
   tickCount: 5,
+  lineWidth: 1,
+};
+
+const PADDING = {
+  top: 4, // внешний отступ сверху SVG
+  right: 16, // внешний отступ справа SVG (для подписей X-оси)
 };
 
 const LEGEND = {
@@ -70,7 +80,7 @@ function calculateLayout(params: Params): Layout {
   const columnCount = params.legendWidth.length;
   const legendRows = Math.ceil(params.timeSeries.length / columnCount);
 
-  let currentY = 0;
+  let currentY = PADDING.top;
 
   // Title
   const titleLayout = hasTitle ? { x: 0, y: currentY } : null;
@@ -101,7 +111,7 @@ function calculateLayout(params: Params): Layout {
   currentY += legendRows * LEGEND.rowHeight;
 
   // Total dimensions
-  const totalWidth = chartX + chartWidth;
+  const totalWidth = chartX + chartWidth + PADDING.right;
   const totalHeight = currentY;
 
   return {
@@ -143,7 +153,18 @@ function renderAxisY(params: Params, layout: Layout, scales: Scales): string {
   const { x, y } = layout.axisY;
   const chartRight = x + AXIS.leftWidth;
 
-  return ticks
+  // Линия оси Y (вертикальная) — фиксированная по высоте CHART.height
+  const axisLine = `
+    <line
+      x1="${chartRight}"
+      y1="${y}"
+      x2="${chartRight}"
+      y2="${y + CHART.height}"
+      stroke="${AXIS.color}"
+      stroke-width="${AXIS.lineWidth}"
+    />`;
+
+  const ticksAndLabels = ticks
     .map((tick) => {
       const tickY = y + scales.y(tick);
       return `
@@ -165,6 +186,8 @@ function renderAxisY(params: Params, layout: Layout, scales: Scales): string {
       >${tick}</text>`;
     })
     .join("");
+
+  return axisLine + ticksAndLabels;
 }
 
 function renderAxisX(params: Params, layout: Layout, scales: Scales): string {
@@ -173,7 +196,18 @@ function renderAxisX(params: Params, layout: Layout, scales: Scales): string {
   const ticks = scales.x.ticks(AXIS.tickCount);
   const { x, y } = layout.axisX;
 
-  return ticks
+  // Линия оси X (горизонтальная) — фиксированная по ширине CHART.width
+  const axisLine = `
+    <line
+      x1="${x}"
+      y1="${y}"
+      x2="${x + CHART.width}"
+      y2="${y}"
+      stroke="${AXIS.color}"
+      stroke-width="${AXIS.lineWidth}"
+    />`;
+
+  const ticksAndLabels = ticks
     .map((tick) => {
       const tickX = x + scales.x(tick);
       return `
@@ -194,6 +228,8 @@ function renderAxisX(params: Params, layout: Layout, scales: Scales): string {
       >${params.timeFormat(tick)}</text>`;
     })
     .join("");
+
+  return axisLine + ticksAndLabels;
 }
 
 function renderChartLines(
@@ -277,11 +313,11 @@ function renderTimeSeriesChart(params: Params): string {
     x: d3
       .scaleTime()
       .domain(d3.extent(time) as [Date, Date])
-      .range([0, layout.chart.width]),
+      .range([0, CHART.width - CHART.inset.right]),
     y: d3
       .scaleLinear()
       .domain([yMax, yMin]) // инвертируем для SVG координат
-      .range([0, layout.chart.height]),
+      .range([CHART.inset.top, CHART.height]),
   };
 
   // Собираем SVG
