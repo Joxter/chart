@@ -80,20 +80,18 @@ const AXIS = {
 };
 
 const PADDING = {
-  top: 4, // внешний отступ сверху SVG
+  top: 2, // внешний отступ сверху SVG
   right: 16, // внешний отступ справа SVG (для подписей X-оси)
 };
 
 const LEGEND = {
   rowHeight: 20,
-  colorBoxSize: 12,
+  colorBoxSize: 10,
   colorBoxMargin: 8,
   fontSize: 12,
   fontFamily: "sans-serif",
   color: "#333",
 };
-
-// --- Layout Calculator ---
 
 type Layout = {
   totalWidth: number;
@@ -165,14 +163,10 @@ function calculateLayout(params: Params): Layout {
   };
 }
 
-// --- Scales Type ---
-
 type Scales = {
   x: d3.ScaleTime<number, number>;
   y: d3.ScaleLinear<number, number>;
 };
-
-// --- Render Functions ---
 
 function renderTitle(params: Params, layout: Layout): string {
   if (!layout.title || !params.title) return "";
@@ -193,7 +187,6 @@ function renderAxisY(_params: Params, layout: Layout, scales: Scales): string {
   const { x, y } = layout.axisY;
   const chartRight = x + AXIS.leftWidth;
 
-  // Линия оси Y (вертикальная) — фиксированная по высоте CHART.height
   const axisLine = `
     <line
       x1="${chartRight}"
@@ -227,7 +220,7 @@ function renderAxisY(_params: Params, layout: Layout, scales: Scales): string {
     })
     .join("");
 
-  return axisLine + ticksAndLabels;
+  return "<g class='y-axis'>" + axisLine + ticksAndLabels + "</g>";
 }
 
 function renderAxisX(params: Params, layout: Layout, scales: Scales): string {
@@ -236,7 +229,6 @@ function renderAxisX(params: Params, layout: Layout, scales: Scales): string {
   const ticks = scales.x.ticks(AXIS.tickCount);
   const { x, y } = layout.axisX;
 
-  // Линия оси X (горизонтальная) — фиксированная по ширине CHART.width
   const axisLine = `
     <line
       x1="${x}"
@@ -269,7 +261,7 @@ function renderAxisX(params: Params, layout: Layout, scales: Scales): string {
     })
     .join("");
 
-  return axisLine + ticksAndLabels;
+  return "<g class='x-axis'>" + axisLine + ticksAndLabels + "</g>";
 }
 
 function renderChartLines(
@@ -280,7 +272,7 @@ function renderChartLines(
   if (!layout.chart) return "";
   const { x: offsetX, y: offsetY } = layout.chart;
 
-  return params.timeSeries
+  const lines = params.timeSeries
     .map((series) => {
       const lineGenerator = d3
         .line<number>()
@@ -296,6 +288,8 @@ function renderChartLines(
       />`;
     })
     .join("");
+
+  return "<g class='time-series'>" + lines + "</g>";
 }
 
 function renderLegend(params: Params, layout: Layout): string {
@@ -303,12 +297,11 @@ function renderLegend(params: Params, layout: Layout): string {
   const { x: startX, y: startY } = layout.legend;
   const columnCount = params.legendWidth.length;
 
-  return params.timeSeries
+  const legend = params.timeSeries
     .map((series, index) => {
       const col = index % columnCount;
       const row = Math.floor(index / columnCount);
 
-      // Вычисляем X позицию на основе суммы ширин предыдущих колонок
       const colX =
         startX + params.legendWidth.slice(0, col).reduce((a, b) => a + b, 0);
       const itemY = startY + row * LEGEND.rowHeight;
@@ -333,9 +326,9 @@ function renderLegend(params: Params, layout: Layout): string {
       >${series.label}</text>`;
     })
     .join("");
-}
 
-// --- Main Render Function ---
+  return "<g class='legend'>" + legend + "</g>";
+}
 
 function renderTimeSeriesChart(params: Params): string {
   const { timeSeries, time, showAxis } = params;
@@ -347,9 +340,12 @@ function renderTimeSeriesChart(params: Params): string {
   const layout = calculateLayout(params);
 
   // Создаём scales
-  const allValues = timeSeries.flatMap((s) => s.data);
-  const yMin = d3.min(allValues) ?? 0;
-  const yMax = d3.max(allValues) ?? 0;
+  const yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
+  const yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+
+  if (!yMin && !yMax) {
+    return "<svg></svg>";
+  }
 
   const scales: Scales = {
     x: d3
@@ -375,7 +371,12 @@ function renderTimeSeriesChart(params: Params): string {
   parts.push(renderChartLines(params, layout, scales));
   parts.push(renderLegend(params, layout));
 
-  return `<svg width="${layout.totalWidth}" height="${layout.totalHeight}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg 
+    width="${layout.totalWidth}"
+    height="${layout.totalHeight}"
+    style="background-color: #fff"
+    xmlns="http://www.w3.org/2000/svg"
+  >
     ${parts.join("\n")}
   </svg>`;
 }
@@ -406,7 +407,7 @@ export function ChartPg() {
     timeFormat: (d) => d3.timeFormat("%b %d")(d),
     legendWidth: [120, 120],
     showAxis: true,
-    layoutRows: ["title", 12, "chart", 16, "legend"],
+    layoutRows: ["title", 0, "chart", 0, "legend"],
   });
 
   return (
@@ -433,7 +434,6 @@ export function ChartPg() {
       <div
         dangerouslySetInnerHTML={{
           __html: renderTimeSeriesChart({
-            // title: "Chart Only",
             timeSeries: testTimeSeries,
             time: testTime,
             timeFormat: (d) => d3.timeFormat("%b %d")(d),
