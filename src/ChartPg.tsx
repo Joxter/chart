@@ -81,6 +81,12 @@ const categoricalMixedSeries: CategoricalSeriesItem[] = [
   { legend: "Change", color: "#9467bd", values: [-5, 10, -8, 12] },
 ];
 
+const categoricalWithLine: CategoricalSeriesItem[] = [
+  { legend: "Sales", color: "#1f77b4", values: [120, 180, 150, 200] },
+  { legend: "Costs", color: "#ff7f0e", values: [80, 100, 90, 110] },
+  { legend: "Trend", color: "#2ca02c", variant: "line", values: [100, 140, 120, 155] },
+];
+
 // --- Playground ---
 
 export function ChartPg() {
@@ -100,6 +106,14 @@ export function ChartPg() {
         labels={categoricalLabels}
         series={categoricalMixedSeries}
         legendWidth={[80, 80]}
+      />
+
+      <h3>Bars with line overlay</h3>
+      <CategoricalChart
+        title="Sales vs Costs with Trend"
+        labels={categoricalLabels}
+        series={categoricalWithLine}
+        legendWidth={[80, 80, 80]}
       />
 
       <h2>Time Series Charts</h2>

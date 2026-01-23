@@ -68,6 +68,7 @@ export type TimeSeriesChartProps = {
 export type CategoricalSeriesItem = {
   legend: string;
   color: string;
+  variant?: "bar" | "line"; // "bar" by default
   values: number[];
 };
 
@@ -571,11 +572,11 @@ function CategoricalAxisX({
 }
 
 function CategoricalBars({
-  series,
+  barSeries,
   layout,
   yScale,
 }: {
-  series: CategoricalSeriesItem[];
+  barSeries: CategoricalSeriesItem[];
   layout: Layout;
   yScale: YScale;
 }) {
@@ -590,12 +591,12 @@ function CategoricalBars({
   );
 
   const groupWidth =
-    series.length * CATEGORICAL.barWidth +
-    (series.length - 1) * CATEGORICAL.barGap;
+    barSeries.length * CATEGORICAL.barWidth +
+    (barSeries.length - 1) * CATEGORICAL.barGap;
 
   return (
     <g className="categorical-bars">
-      {series.map((s, seriesIdx) => (
+      {barSeries.map((s, seriesIdx) => (
         <g key={seriesIdx}>
           {s.values.map((value, catIdx) => {
             const groupX =
@@ -621,6 +622,52 @@ function CategoricalBars({
           })}
         </g>
       ))}
+    </g>
+  );
+}
+
+function CategoricalLines({
+  lineSeries,
+  barSeriesCount,
+  layout,
+  yScale,
+}: {
+  lineSeries: CategoricalSeriesItem[];
+  barSeriesCount: number;
+  layout: Layout;
+  yScale: YScale;
+}) {
+  if (!layout.chart || lineSeries.length === 0) return null;
+  const { x: offsetX, y: offsetY } = layout.chart;
+
+  const groupWidth =
+    barSeriesCount * CATEGORICAL.barWidth +
+    (barSeriesCount - 1) * CATEGORICAL.barGap;
+
+  return (
+    <g className="categorical-lines">
+      {lineSeries.map((s, seriesIdx) => {
+        const lineGenerator = d3
+          .line<number>()
+          .x((_, catIdx) => {
+            const groupX =
+              CHART.inset.left + catIdx * (groupWidth + CATEGORICAL.groupGap);
+            return offsetX + groupX + groupWidth / 2;
+          })
+          .y((d) => offsetY + yScale(d));
+
+        const pathD = lineGenerator(s.values);
+
+        return (
+          <path
+            key={seriesIdx}
+            d={pathD ?? undefined}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={CHART.lineWidth}
+          />
+        );
+      })}
     </g>
   );
 }
@@ -709,14 +756,17 @@ export function CategoricalChart(props: CategoricalChartProps) {
   const { labels, series, title, legendWidth } = props;
   const showAxis = props.showAxis ?? true;
 
+  const barSeries = series.filter((s) => (s.variant ?? "bar") === "bar");
+  const lineSeries = series.filter((s) => s.variant === "line");
+
   const { layout, yScale, hasNegative } = useMemo(() => {
     if (series.length === 0 || labels.length === 0) {
       return { layout: null, yScale: null, hasNegative: false };
     }
 
     const groupWidth =
-      series.length * CATEGORICAL.barWidth +
-      (series.length - 1) * CATEGORICAL.barGap;
+      barSeries.length * CATEGORICAL.barWidth +
+      Math.max(0, barSeries.length - 1) * CATEGORICAL.barGap;
     const chartWidth =
       CHART.inset.left +
       labels.length * groupWidth +
@@ -746,7 +796,7 @@ export function CategoricalChart(props: CategoricalChartProps) {
       .range([CHART.inset.top, CHART.height - bottomInset]);
 
     return { layout, yScale, hasNegative };
-  }, [props, series, labels]);
+  }, [props, series, barSeries, labels]);
 
   if (!layout || !yScale) {
     return <svg />;
@@ -768,12 +818,18 @@ export function CategoricalChart(props: CategoricalChartProps) {
           <CategoricalAxisX
             layout={layout}
             labels={labels}
-            seriesCount={series.length}
+            seriesCount={barSeries.length}
           />
         </>
       )}
       {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
-      <CategoricalBars series={series} layout={layout} yScale={yScale} />
+      <CategoricalBars barSeries={barSeries} layout={layout} yScale={yScale} />
+      <CategoricalLines
+        lineSeries={lineSeries}
+        barSeriesCount={barSeries.length}
+        layout={layout}
+        yScale={yScale}
+      />
       <ChartLegend
         items={legendItems}
         legendWidth={legendWidth}
