@@ -78,6 +78,7 @@ export type CategoricalChartProps = {
   series: CategoricalSeriesItem[];
   legendWidth?: number[];
   showAxis?: boolean;
+  stackedBars?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
 };
 
@@ -139,6 +140,7 @@ const GAP = 5;
 
 const CATEGORICAL = {
   barWidth: 20,
+  stackedBarWidth: 40,
   barGap: 2,
   groupGap: 16,
 };
@@ -520,16 +522,20 @@ function CategoricalAxisX({
   layout,
   labels,
   seriesCount,
+  stacked,
 }: {
   layout: Layout;
   labels: string[];
   seriesCount: number;
+  stacked?: boolean;
 }) {
   if (!layout.axisX || !layout.chart) return null;
 
   const { x, y } = layout.axisX;
-  const groupWidth =
-    seriesCount * CATEGORICAL.barWidth + (seriesCount - 1) * CATEGORICAL.barGap;
+  const groupWidth = stacked
+    ? CATEGORICAL.stackedBarWidth
+    : seriesCount * CATEGORICAL.barWidth +
+      (seriesCount - 1) * CATEGORICAL.barGap;
 
   return (
     <g className="x-axis">
@@ -626,23 +632,83 @@ function CategoricalBars({
   );
 }
 
+function StackedCategoricalBars({
+  barSeries,
+  layout,
+  yScale,
+}: {
+  barSeries: CategoricalSeriesItem[];
+  layout: Layout;
+  yScale: YScale;
+}) {
+  if (!layout.chart) return null;
+  const { x: offsetX, y: offsetY } = layout.chart;
+
+  const chartTop = offsetY + CHART.inset.top;
+  const chartBottom = offsetY + CHART.height;
+  const baselineY = Math.max(
+    chartTop,
+    Math.min(chartBottom, offsetY + yScale(0)),
+  );
+
+  const barWidth = CATEGORICAL.stackedBarWidth;
+  const groupWidth = barWidth;
+
+  return (
+    <g className="categorical-bars-stacked">
+      {barSeries[0]?.values.map((_, catIdx) => {
+        const groupX =
+          CHART.inset.left + catIdx * (groupWidth + CATEGORICAL.groupGap);
+        const barX = offsetX + groupX;
+
+        let currentY = baselineY;
+
+        return (
+          <g key={catIdx}>
+            {barSeries.map((s, seriesIdx) => {
+              const value = s.values[catIdx];
+              const height = Math.abs(yScale(0) - yScale(value));
+              const y = currentY - height;
+              currentY = y;
+
+              return (
+                <rect
+                  key={seriesIdx}
+                  x={barX}
+                  y={y}
+                  width={barWidth}
+                  height={height}
+                  fill={s.color}
+                />
+              );
+            })}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 function CategoricalLines({
   lineSeries,
   barSeriesCount,
   layout,
   yScale,
+  stacked,
 }: {
   lineSeries: CategoricalSeriesItem[];
   barSeriesCount: number;
   layout: Layout;
   yScale: YScale;
+  stacked?: boolean;
 }) {
   if (!layout.chart || lineSeries.length === 0) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
 
-  const groupWidth =
-    barSeriesCount * CATEGORICAL.barWidth +
-    (barSeriesCount - 1) * CATEGORICAL.barGap;
+  const groupWidth = stacked
+    ? CATEGORICAL.stackedBarWidth
+    : barSeriesCount * CATEGORICAL.barWidth +
+      (barSeriesCount - 1) * CATEGORICAL.barGap;
 
   return (
     <g className="categorical-lines">
@@ -753,7 +819,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
 }
 
 export function CategoricalChart(props: CategoricalChartProps) {
-  const { labels, series, title, legendWidth } = props;
+  const { labels, series, title, legendWidth, stackedBars } = props;
   const showAxis = props.showAxis ?? true;
 
   const barSeries = series.filter((s) => (s.variant ?? "bar") === "bar");
@@ -764,9 +830,11 @@ export function CategoricalChart(props: CategoricalChartProps) {
       return { layout: null, yScale: null, hasNegative: false };
     }
 
-    const groupWidth =
-      barSeries.length * CATEGORICAL.barWidth +
-      Math.max(0, barSeries.length - 1) * CATEGORICAL.barGap;
+    const groupWidth = stackedBars
+      ? CATEGORICAL.stackedBarWidth
+      : barSeries.length * CATEGORICAL.barWidth +
+        Math.max(0, barSeries.length - 1) * CATEGORICAL.barGap;
+
     const chartWidth =
       CHART.inset.left +
       labels.length * groupWidth +
@@ -779,9 +847,22 @@ export function CategoricalChart(props: CategoricalChartProps) {
       chartWidth,
     });
 
-    const allValues = series.flatMap((s) => s.values);
-    const yMin = d3.min(allValues) ?? 0;
-    const yMax = d3.max(allValues) ?? 0;
+    // For stacked bars, calculate the sum of all bar values per category
+    let yMin: number, yMax: number;
+    if (stackedBars) {
+      const stackedSums = labels.map((_, catIdx) =>
+        barSeries.reduce((sum, s) => sum + s.values[catIdx], 0),
+      );
+      const lineValues = lineSeries.flatMap((s) => s.values);
+      const allValues = [...stackedSums, ...lineValues];
+      // Domain must include 0 since bars start from baseline
+      yMin = Math.min(0, d3.min(allValues) ?? 0);
+      yMax = Math.max(0, d3.max(allValues) ?? 0);
+    } else {
+      const allValues = series.flatMap((s) => s.values);
+      yMin = d3.min(allValues) ?? 0;
+      yMax = d3.max(allValues) ?? 0;
+    }
 
     if (!yMin && !yMax) {
       return { layout: null, yScale: null, hasNegative: false };
@@ -796,7 +877,7 @@ export function CategoricalChart(props: CategoricalChartProps) {
       .range([CHART.inset.top, CHART.height - bottomInset]);
 
     return { layout, yScale, hasNegative };
-  }, [props, series, barSeries, labels]);
+  }, [props, series, barSeries, lineSeries, labels, stackedBars]);
 
   if (!layout || !yScale) {
     return <svg />;
@@ -819,16 +900,30 @@ export function CategoricalChart(props: CategoricalChartProps) {
             layout={layout}
             labels={labels}
             seriesCount={barSeries.length}
+            stacked={stackedBars}
           />
         </>
       )}
       {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
-      <CategoricalBars barSeries={barSeries} layout={layout} yScale={yScale} />
+      {stackedBars ? (
+        <StackedCategoricalBars
+          barSeries={barSeries}
+          layout={layout}
+          yScale={yScale}
+        />
+      ) : (
+        <CategoricalBars
+          barSeries={barSeries}
+          layout={layout}
+          yScale={yScale}
+        />
+      )}
       <CategoricalLines
         lineSeries={lineSeries}
         barSeriesCount={barSeries.length}
         layout={layout}
         yScale={yScale}
+        stacked={stackedBars}
       />
       <ChartLegend
         items={legendItems}

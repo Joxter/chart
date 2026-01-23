@@ -72,8 +72,8 @@ const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 const categoricalLabels = ["Class A", "Class B", "Class C", "Class D"];
 
 const categoricalSeries: CategoricalSeriesItem[] = [
-  { legend: "Before", color: "#e41a1c", values: [10, 25, 15, 30] },
-  { legend: "After", color: "#377eb8", values: [5, 15, 20, 18] },
+  { legend: "Before", color: "#e41a1c", values: [10, 25, 15, 30, 20, 25] },
+  { legend: "After", color: "#377eb8", values: [5, 15, 20, 18, 10, 12] },
 ];
 
 const categoricalMixedSeries: CategoricalSeriesItem[] = [
@@ -84,7 +84,30 @@ const categoricalMixedSeries: CategoricalSeriesItem[] = [
 const categoricalWithLine: CategoricalSeriesItem[] = [
   { legend: "Sales", color: "#1f77b4", values: [120, 180, 150, 200] },
   { legend: "Costs", color: "#ff7f0e", values: [80, 100, 90, 110] },
-  { legend: "Trend", color: "#2ca02c", variant: "line", values: [100, 140, 120, 155] },
+  {
+    legend: "Trend",
+    color: "#2ca02c",
+    variant: "line",
+    values: [100, 140, 120, 155],
+  },
+];
+
+const stackedSeries: CategoricalSeriesItem[] = [
+  { legend: "Q1", color: "#1f77b4", values: [40, 60, 50, 70] },
+  { legend: "Q2", color: "#ff7f0e", values: [35, 45, 40, 55] },
+  { legend: "Q3", color: "#2ca02c", values: [50, 55, 45, 60] },
+  { legend: "Q4", color: "#b13f84", values: [60, 65, 55, 65] },
+];
+
+const stackedWithLine: CategoricalSeriesItem[] = [
+  { legend: "Revenue", color: "#1f77b4", values: [80, 120, 100, 140] },
+  { legend: "Expenses", color: "#ff7f0e", values: [50, 70, 60, 80] },
+  {
+    legend: "Target",
+    color: "#d62728",
+    variant: "line",
+    values: [100, 150, 130, 180],
+  },
 ];
 
 // --- Playground ---
@@ -95,7 +118,7 @@ export function ChartPg() {
       <h2>Categorical Charts</h2>
       <CategoricalChart
         title="Sample Categorical"
-        labels={categoricalLabels}
+        labels={[...categoricalLabels, "Class E", "Class F"]}
         series={categoricalSeries}
         legendWidth={[80, 80]}
       />
@@ -113,6 +136,24 @@ export function ChartPg() {
         title="Sales vs Costs with Trend"
         labels={categoricalLabels}
         series={categoricalWithLine}
+        legendWidth={[80, 80, 80]}
+      />
+
+      <h3>Stacked bars</h3>
+      <CategoricalChart
+        title="Quarterly Revenue by Class"
+        labels={categoricalLabels}
+        series={stackedSeries}
+        stackedBars={true}
+        legendWidth={[60, 60, 60]}
+      />
+
+      <h3>Stacked bars with line overlay</h3>
+      <CategoricalChart
+        title="Revenue vs Target"
+        labels={categoricalLabels}
+        series={stackedWithLine}
+        stackedBars={true}
         legendWidth={[80, 80, 80]}
       />
 
