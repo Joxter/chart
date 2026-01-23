@@ -19,7 +19,7 @@
  * CategoricalChart PROPS:
  *   title?: string          - chart title
  *   labels: string[]        - x-axis category labels
- *   series: []              - array of {legend, color, variant?, values: number[]}
+ *   series: []              - array of {label, color, variant?, values: number[]}
  *                             variant: "bar" (default) | "line"
  *   legendWidth?: number[]  - column widths for legend
  *   showAxis?: boolean      - show X/Y axes (default: true)
@@ -49,10 +49,8 @@
 import * as d3 from "d3";
 import { useMemo } from "react";
 
-// --- Types ---
-
 export type TimeSeriesItem = {
-  label: string;
+  legend: string;
   color: string;
   variant?: "line" | "area" | "bars";
   data: number[];
@@ -72,7 +70,7 @@ export type TimeSeriesChartProps = {
 export type CategoricalSeriesItem = {
   legend: string;
   color: string;
-  variant?: "bar" | "line"; // "bar" by default
+  variant?: "bar" | "line";
   values: number[];
 };
 
@@ -85,8 +83,6 @@ export type CategoricalChartProps = {
   stackedBars?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
 };
-
-// --- Constants ---
 
 const defaultLayoutRows = ["title", "chart", "legend"];
 
@@ -102,6 +98,7 @@ const CHART = {
   height: 100,
   lineWidth: 2,
   barWidth: 4,
+  areaOpacity: 0.3,
   zeroLine: {
     color: "#999",
     width: 1,
@@ -123,6 +120,7 @@ const AXIS = {
   color: "#666",
   tickSize: 5,
   tickCount: 5,
+  tickLabelGap: 4,
   lineWidth: 1,
 };
 
@@ -149,8 +147,6 @@ const CATEGORICAL = {
   groupGap: 16,
 };
 
-// --- Internal Types ---
-
 type Layout = {
   totalWidth: number;
   totalHeight: number;
@@ -175,7 +171,21 @@ type LayoutParams = {
 
 type LegendItem = { label: string; color: string };
 
-// --- Layout Calculation ---
+function getBaselineY(offsetY: number, yScale: YScale): number {
+  const chartTop = offsetY + CHART.inset.top;
+  const chartBottom = offsetY + CHART.height;
+  return Math.max(chartTop, Math.min(chartBottom, offsetY + yScale(0)));
+}
+
+function getCategoricalGroupWidth(barCount: number, stacked?: boolean): number {
+  if (stacked) {
+    return CATEGORICAL.stackedBarWidth;
+  }
+  return (
+    barCount * CATEGORICAL.barWidth +
+    Math.max(0, barCount - 1) * CATEGORICAL.barGap
+  );
+}
 
 function calculateLayout(params: LayoutParams): Layout {
   const hasAxis = params.showAxis ?? true;
@@ -240,8 +250,6 @@ function calculateLayout(params: LayoutParams): Layout {
   };
 }
 
-// --- Shared Components ---
-
 function ChartTitle({ title, layout }: { title: string; layout: Layout }) {
   if (!layout.title) return null;
   const { x, y } = layout.title;
@@ -263,6 +271,7 @@ function AxisY({ layout, yScale }: { layout: Layout; yScale: YScale }) {
   if (!layout.axisY) return null;
 
   const ticks = yScale.ticks(AXIS.tickCount);
+  const tickFormat = yScale.tickFormat(AXIS.tickCount, "s");
   const { x, y } = layout.axisY;
   const chartRight = x + AXIS.leftWidth;
 
@@ -288,7 +297,7 @@ function AxisY({ layout, yScale }: { layout: Layout; yScale: YScale }) {
               stroke={AXIS.color}
             />
             <text
-              x={chartRight - AXIS.tickSize - 4}
+              x={chartRight - AXIS.tickSize - AXIS.tickLabelGap}
               y={tickY}
               fontSize={AXIS.fontSize}
               fontFamily={AXIS.fontFamily}
@@ -296,7 +305,7 @@ function AxisY({ layout, yScale }: { layout: Layout; yScale: YScale }) {
               textAnchor="end"
               dominantBaseline="middle"
             >
-              {tick}
+              {tickFormat(tick)}
             </text>
           </g>
         );
@@ -374,8 +383,6 @@ function ZeroLine({ layout, yScale }: { layout: Layout; yScale: YScale }) {
   );
 }
 
-// --- TimeSeriesChart Components ---
-
 function AxisX({
   layout,
   xScale,
@@ -443,13 +450,7 @@ function ChartLines({
 }) {
   if (!layout.chart) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
-
-  const chartTop = offsetY + CHART.inset.top;
-  const chartBottom = offsetY + CHART.height;
-  const baselineY = Math.max(
-    chartTop,
-    Math.min(chartBottom, offsetY + yScale(0)),
-  );
+  const baselineY = getBaselineY(offsetY, yScale);
 
   return (
     <g className="time-series">
@@ -470,7 +471,7 @@ function ChartLines({
               key={idx}
               d={pathD ?? undefined}
               fill={series.color}
-              fillOpacity={0.3}
+              fillOpacity={CHART.areaOpacity}
             />
           );
         }
@@ -536,42 +537,42 @@ function StackedAreas({
   if (!layout.chart || areaSeries.length === 0) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
 
-  // Build cumulative data for stacking
-  const stackedData = areaSeries.map((_, seriesIdx) => {
-    return time.map((_, timeIdx) => {
-      const y0 = areaSeries
-        .slice(0, seriesIdx)
-        .reduce((sum, s) => sum + s.data[timeIdx], 0);
-      const y1 = y0 + areaSeries[seriesIdx].data[timeIdx];
-      return { y0, y1 };
+  // Transform data for d3.stack(): array of objects with series keys
+  const keys = areaSeries.map((_, i) => `s${i}`);
+  const stackData = time.map((_, timeIdx) => {
+    const point: Record<string, number> = {};
+    areaSeries.forEach((s, i) => {
+      point[keys[i]] = s.data[timeIdx];
     });
+    return point;
   });
+
+  const stack = d3.stack<Record<string, number>>().keys(keys);
+  const stackedLayers = stack(stackData);
 
   return (
     <g className="stacked-areas">
-      {areaSeries.map((series, seriesIdx) => {
+      {stackedLayers.map((layer, seriesIdx) => {
         const areaGenerator = d3
-          .area<{ y0: number; y1: number }>()
+          .area<d3.SeriesPoint<Record<string, number>>>()
           .x((_, i) => offsetX + xScale(time[i]))
-          .y0((d) => offsetY + yScale(d.y0))
-          .y1((d) => offsetY + yScale(d.y1));
+          .y0((d) => offsetY + yScale(d[0]))
+          .y1((d) => offsetY + yScale(d[1]));
 
-        const pathD = areaGenerator(stackedData[seriesIdx]);
+        const pathD = areaGenerator(layer);
 
         return (
           <path
             key={seriesIdx}
             d={pathD ?? undefined}
-            fill={series.color}
-            fillOpacity={0.3}
+            fill={areaSeries[seriesIdx].color}
+            fillOpacity={CHART.areaOpacity}
           />
         );
       })}
     </g>
   );
 }
-
-// --- CategoricalChart Components ---
 
 function CategoricalAxisX({
   layout,
@@ -587,10 +588,7 @@ function CategoricalAxisX({
   if (!layout.axisX || !layout.chart) return null;
 
   const { x, y } = layout.axisX;
-  const groupWidth = stacked
-    ? CATEGORICAL.stackedBarWidth
-    : seriesCount * CATEGORICAL.barWidth +
-      (seriesCount - 1) * CATEGORICAL.barGap;
+  const groupWidth = getCategoricalGroupWidth(seriesCount, stacked);
 
   return (
     <g className="x-axis">
@@ -643,17 +641,8 @@ function CategoricalBars({
 }) {
   if (!layout.chart) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
-
-  const chartTop = offsetY + CHART.inset.top;
-  const chartBottom = offsetY + CHART.height;
-  const baselineY = Math.max(
-    chartTop,
-    Math.min(chartBottom, offsetY + yScale(0)),
-  );
-
-  const groupWidth =
-    barSeries.length * CATEGORICAL.barWidth +
-    (barSeries.length - 1) * CATEGORICAL.barGap;
+  const baselineY = getBaselineY(offsetY, yScale);
+  const groupWidth = getCategoricalGroupWidth(barSeries.length);
 
   return (
     <g className="categorical-bars">
@@ -696,50 +685,46 @@ function StackedCategoricalBars({
   layout: Layout;
   yScale: YScale;
 }) {
-  if (!layout.chart) return null;
+  if (!layout.chart || barSeries.length === 0) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
+  const groupWidth = getCategoricalGroupWidth(barSeries.length, true);
 
-  const chartTop = offsetY + CHART.inset.top;
-  const chartBottom = offsetY + CHART.height;
-  const baselineY = Math.max(
-    chartTop,
-    Math.min(chartBottom, offsetY + yScale(0)),
-  );
+  // Transform data for d3.stack(): array of objects with series keys
+  const keys = barSeries.map((_, i) => `s${i}`);
+  const categoryCount = barSeries[0]?.values.length ?? 0;
+  const stackData = Array.from({ length: categoryCount }, (_, catIdx) => {
+    const point: Record<string, number> = {};
+    barSeries.forEach((s, i) => {
+      point[keys[i]] = s.values[catIdx];
+    });
+    return point;
+  });
 
-  const barWidth = CATEGORICAL.stackedBarWidth;
-  const groupWidth = barWidth;
+  const stack = d3.stack<Record<string, number>>().keys(keys);
+  const stackedLayers = stack(stackData);
 
   return (
     <g className="categorical-bars-stacked">
-      {barSeries[0]?.values.map((_, catIdx) => {
-        const groupX =
-          CHART.inset.left + catIdx * (groupWidth + CATEGORICAL.groupGap);
-        const barX = offsetX + groupX;
+      {stackedLayers.map((layer, seriesIdx) =>
+        layer.map((d, catIdx) => {
+          const groupX =
+            CHART.inset.left + catIdx * (groupWidth + CATEGORICAL.groupGap);
+          const barX = offsetX + groupX;
+          const y0 = offsetY + yScale(d[0]);
+          const y1 = offsetY + yScale(d[1]);
 
-        let currentY = baselineY;
-
-        return (
-          <g key={catIdx}>
-            {barSeries.map((s, seriesIdx) => {
-              const value = s.values[catIdx];
-              const height = Math.abs(yScale(0) - yScale(value));
-              const y = currentY - height;
-              currentY = y;
-
-              return (
-                <rect
-                  key={seriesIdx}
-                  x={barX}
-                  y={y}
-                  width={barWidth}
-                  height={height}
-                  fill={s.color}
-                />
-              );
-            })}
-          </g>
-        );
-      })}
+          return (
+            <rect
+              key={`${seriesIdx}-${catIdx}`}
+              x={barX}
+              y={y1}
+              width={CATEGORICAL.stackedBarWidth}
+              height={y0 - y1}
+              fill={barSeries[seriesIdx].color}
+            />
+          );
+        }),
+      )}
     </g>
   );
 }
@@ -759,11 +744,7 @@ function CategoricalLines({
 }) {
   if (!layout.chart || lineSeries.length === 0) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
-
-  const groupWidth = stacked
-    ? CATEGORICAL.stackedBarWidth
-    : barSeriesCount * CATEGORICAL.barWidth +
-      (barSeriesCount - 1) * CATEGORICAL.barGap;
+  const groupWidth = getCategoricalGroupWidth(barSeriesCount, stacked);
 
   return (
     <g className="categorical-lines">
@@ -793,69 +774,83 @@ function CategoricalLines({
   );
 }
 
-// --- Exported Chart Components ---
-
 export function TimeSeriesChart(props: TimeSeriesChartProps) {
   const { timeSeries, time, title, timeFormat, legendWidth, stackedAreas } =
     props;
   const showAxis = props.showAxis ?? true;
 
-  const areaSeries = timeSeries.filter((s) => s.variant === "area");
-  const nonAreaSeries = timeSeries.filter((s) => s.variant !== "area");
+  const { layout, xScale, yScale, hasNegative, areaSeries, nonAreaSeries } =
+    useMemo(() => {
+      if (timeSeries.length === 0 || time.length === 0) {
+        return {
+          layout: null,
+          xScale: null,
+          yScale: null,
+          hasNegative: false,
+          areaSeries: [],
+          nonAreaSeries: [],
+        };
+      }
 
-  const { layout, xScale, yScale, hasNegative } = useMemo(() => {
-    if (timeSeries.length === 0 || time.length === 0) {
-      return { layout: null, xScale: null, yScale: null, hasNegative: false };
-    }
+      const areaSeries = timeSeries.filter((s) => s.variant === "area");
+      const nonAreaSeries = timeSeries.filter((s) => s.variant !== "area");
 
-    const layout = calculateLayout({
-      ...props,
-      seriesCount: timeSeries.length,
-      chartWidth: CHART.width,
-    });
+      const layout = calculateLayout({
+        ...props,
+        seriesCount: timeSeries.length,
+        chartWidth: CHART.width,
+      });
 
-    let yMin: number, yMax: number;
-    if (stackedAreas && areaSeries.length > 0) {
-      // For stacked areas, calculate cumulative sums at each time point
-      const stackedSums = time.map((_, timeIdx) =>
-        areaSeries.reduce((sum, s) => sum + s.data[timeIdx], 0),
-      );
-      const nonAreaValues = nonAreaSeries.flatMap((s) => s.data);
-      const allValues = [...stackedSums, ...nonAreaValues];
-      // Domain must include 0 since areas start from baseline
-      yMin = Math.min(0, d3.min(allValues) ?? 0);
-      yMax = Math.max(0, d3.max(allValues) ?? 0);
-    } else {
-      yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
-      yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
-    }
+      let yMin: number, yMax: number;
+      if (stackedAreas && areaSeries.length > 0) {
+        // For stacked areas, calculate cumulative sums at each time point
+        const stackedSums = time.map((_, timeIdx) =>
+          areaSeries.reduce((sum, s) => sum + s.data[timeIdx], 0),
+        );
+        const nonAreaValues = nonAreaSeries.flatMap((s) => s.data);
+        const allValues = [...stackedSums, ...nonAreaValues];
+        // Domain must include 0 since areas start from baseline
+        yMin = Math.min(0, d3.min(allValues) ?? 0);
+        yMax = Math.max(0, d3.max(allValues) ?? 0);
+      } else {
+        yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
+        yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+      }
 
-    if (!yMin && !yMax) {
-      return { layout: null, xScale: null, yScale: null, hasNegative: false };
-    }
+      if (!yMin && !yMax) {
+        return {
+          layout: null,
+          xScale: null,
+          yScale: null,
+          hasNegative: false,
+          areaSeries: [],
+          nonAreaSeries: [],
+        };
+      }
 
-    const hasNegative = yMin < 0;
-    const bottomInset = hasNegative ? CHART.inset.bottom : 0;
+      const hasNegative = yMin < 0;
+      const bottomInset = hasNegative ? CHART.inset.bottom : 0;
 
-    const xScale = d3
-      .scaleTime()
-      .domain(d3.extent(time) as [Date, Date])
-      .range([CHART.inset.left, CHART.width - CHART.inset.right]);
+      const xScale = d3
+        .scaleTime()
+        .domain(d3.extent(time) as [Date, Date])
+        .range([CHART.inset.left, CHART.width - CHART.inset.right]);
 
-    const yScale: YScale = d3
-      .scaleLinear()
-      .domain([yMax, yMin])
-      .range([CHART.inset.top, CHART.height - bottomInset]);
+      const yScale: YScale = d3
+        .scaleLinear()
+        .domain([yMax, yMin])
+        .nice()
+        .range([CHART.inset.top, CHART.height - bottomInset]);
 
-    return { layout, xScale, yScale, hasNegative };
-  }, [props, timeSeries, areaSeries, nonAreaSeries, time, stackedAreas]);
+      return { layout, xScale, yScale, hasNegative, areaSeries, nonAreaSeries };
+    }, [props, timeSeries, time, stackedAreas]);
 
   if (!layout || !xScale || !yScale) {
     return <svg />;
   }
 
   const legendItems = timeSeries.map((s) => ({
-    label: s.label,
+    label: s.legend,
     color: s.color,
   }));
 
@@ -903,18 +898,21 @@ export function CategoricalChart(props: CategoricalChartProps) {
   const { labels, series, title, legendWidth, stackedBars } = props;
   const showAxis = props.showAxis ?? true;
 
-  const barSeries = series.filter((s) => (s.variant ?? "bar") === "bar");
-  const lineSeries = series.filter((s) => s.variant === "line");
-
-  const { layout, yScale, hasNegative } = useMemo(() => {
+  const { layout, yScale, hasNegative, barSeries, lineSeries } = useMemo(() => {
     if (series.length === 0 || labels.length === 0) {
-      return { layout: null, yScale: null, hasNegative: false };
+      return {
+        layout: null,
+        yScale: null,
+        hasNegative: false,
+        barSeries: [],
+        lineSeries: [],
+      };
     }
 
-    const groupWidth = stackedBars
-      ? CATEGORICAL.stackedBarWidth
-      : barSeries.length * CATEGORICAL.barWidth +
-        Math.max(0, barSeries.length - 1) * CATEGORICAL.barGap;
+    const barSeries = series.filter((s) => (s.variant ?? "bar") === "bar");
+    const lineSeries = series.filter((s) => s.variant === "line");
+
+    const groupWidth = getCategoricalGroupWidth(barSeries.length, stackedBars);
 
     const chartWidth =
       CHART.inset.left +
@@ -946,7 +944,13 @@ export function CategoricalChart(props: CategoricalChartProps) {
     }
 
     if (!yMin && !yMax) {
-      return { layout: null, yScale: null, hasNegative: false };
+      return {
+        layout: null,
+        yScale: null,
+        hasNegative: false,
+        barSeries: [],
+        lineSeries: [],
+      };
     }
 
     const hasNegative = yMin < 0;
@@ -955,10 +959,11 @@ export function CategoricalChart(props: CategoricalChartProps) {
     const yScale: YScale = d3
       .scaleLinear()
       .domain([yMax, yMin])
+      .nice()
       .range([CHART.inset.top, CHART.height - bottomInset]);
 
-    return { layout, yScale, hasNegative };
-  }, [props, series, barSeries, lineSeries, labels, stackedBars]);
+    return { layout, yScale, hasNegative, barSeries, lineSeries };
+  }, [props, series, labels, stackedBars]);
 
   if (!layout || !yScale) {
     return <svg />;

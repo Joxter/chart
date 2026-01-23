@@ -19,30 +19,30 @@ const testTime = [
 ];
 
 const testTimeSeries: TimeSeriesItem[] = [
-  { label: "Series A", color: "#e41a1c", data: [10, 25, 15, 30, 22, 28, 35] },
-  { label: "Series B", color: "#377eb8", data: [5, 15, 20, 18, 25, 30, 28] },
-  { label: "Series C", color: "#4daf4a", data: [20, 18, 22, 15, 20, 25, 30] },
+  { legend: "Series A", color: "#e41a1c", data: [10, 25, 15, 30, 22, 28, 35] },
+  { legend: "Series B", color: "#377eb8", data: [5, 15, 20, 18, 25, 30, 28] },
+  { legend: "Series C", color: "#4daf4a", data: [20, 18, 22, 15, 20, 25, 30] },
 ];
 
 const mixedTimeSeries: TimeSeriesItem[] = [
-  { label: "Profit", color: "#2ca02c", data: [12, -5, 18, -12, 25, 8, -3] },
-  { label: "Loss", color: "#d62728", data: [-8, 15, -20, 10, -5, -15, 22] },
+  { legend: "Profit", color: "#2ca02c", data: [12, -5, 18, -12, 25, 8, -3] },
+  { legend: "Loss", color: "#d62728", data: [-8, 15, -20, 10, -5, -15, 22] },
 ];
 
 const aroundZeroSeries: TimeSeriesItem[] = [
-  { label: "Delta A", color: "#9467bd", data: [2, -1, 3, -2, 1, -3, 4] },
-  { label: "Delta B", color: "#ff7f0e", data: [-3, 2, -1, 4, -2, 1, -1] },
+  { legend: "Delta A", color: "#9467bd", data: [2, -1, 3, -2, 1, -3, 4] },
+  { legend: "Delta B", color: "#ff7f0e", data: [-3, 2, -1, 4, -2, 1, -1] },
 ];
 
 const areaTimeSeries: TimeSeriesItem[] = [
   {
-    label: "Revenue",
+    legend: "Revenue",
     color: "#1f77b4",
     variant: "area",
     data: [10, 15, 12, 18, 22, 19, 25],
   },
   {
-    label: "Baseline",
+    legend: "Baseline",
     color: "#ff7f0e",
     variant: "line",
     data: [8, 8, 8, 8, 8, 8, 8],
@@ -51,7 +51,7 @@ const areaTimeSeries: TimeSeriesItem[] = [
 
 const mixedAreaSeries: TimeSeriesItem[] = [
   {
-    label: "Net Flow",
+    legend: "Net Flow",
     color: "#2ca02c",
     variant: "area",
     data: [5, -3, 8, -6, 12, -2, 7],
@@ -60,23 +60,32 @@ const mixedAreaSeries: TimeSeriesItem[] = [
 
 const mixedBarsSeries: TimeSeriesItem[] = [
   {
-    label: "Net Change",
+    legend: "Net Change",
     color: "#17becf",
     variant: "bars",
     data: [8, -12, 15, -5, 20, -8, 10],
   },
 ];
 
-const stackedAreaSeries: TimeSeriesItem[] = [
-  { label: "Product A", color: "#1f77b4", variant: "area", data: [10, 15, 12, 18, 22, 19, 25] },
-  { label: "Product B", color: "#ff7f0e", variant: "area", data: [8, 12, 10, 14, 16, 15, 18] },
-  { label: "Product C", color: "#2ca02c", variant: "area", data: [5, 8, 7, 10, 12, 11, 14] },
-];
-
 const stackedAreaWithLine: TimeSeriesItem[] = [
-  { label: "Revenue A", color: "#1f77b4", variant: "area", data: [20, 25, 22, 28, 32, 29, 35] },
-  { label: "Revenue B", color: "#ff7f0e", variant: "area", data: [15, 18, 16, 20, 22, 20, 24] },
-  { label: "Target", color: "#d62728", variant: "line", data: [30, 38, 35, 45, 50, 46, 55] },
+  {
+    legend: "Revenue A",
+    color: "#1f77b4",
+    variant: "area",
+    data: [20, 25, 22, 28, 32, 29, 35].map((x, i) => x * 2 ** i),
+  },
+  {
+    legend: "Revenue B",
+    color: "#ff7f0e",
+    variant: "area",
+    data: [15, 18, 16, 20, 22, 20, 24].map((x, i) => x * 2 ** i),
+  },
+  {
+    legend: "Target",
+    color: "#d62728",
+    variant: "line",
+    data: [30, 38, 35, 45, 50, 46, 65].map((x, i) => x * 2 ** i),
+  },
 ];
 
 const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
@@ -236,17 +245,6 @@ export function ChartPg() {
         timeFormat={formatDate}
         legendWidth={[100]}
         showAxis={true}
-      />
-
-      <h3>Stacked areas</h3>
-      <TimeSeriesChart
-        title="Product Revenue (Stacked)"
-        timeSeries={stackedAreaSeries}
-        time={testTime}
-        timeFormat={formatDate}
-        legendWidth={[100, 100, 100]}
-        showAxis={true}
-        stackedAreas={true}
       />
 
       <h3>Stacked areas with line overlay</h3>
