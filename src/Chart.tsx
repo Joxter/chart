@@ -12,15 +12,18 @@
  *   legendWidth?: number[]  - column widths for legend, e.g. [120, 120] = 2 columns
  *                             omit to hide legend
  *   showAxis?: boolean      - show X/Y axes (default: true)
+ *   stackedAreas?: boolean  - stack area variants (lines/bars not stacked)
  *   layoutRows?: []         - vertical order: "title" | "chart" | "legend"
  *                             (default: ["title", "chart", "legend"])
  *
  * CategoricalChart PROPS:
  *   title?: string          - chart title
  *   labels: string[]        - x-axis category labels
- *   series: []              - array of {legend, color, values: number[]}
+ *   series: []              - array of {legend, color, variant?, values: number[]}
+ *                             variant: "bar" (default) | "line"
  *   legendWidth?: number[]  - column widths for legend
  *   showAxis?: boolean      - show X/Y axes (default: true)
+ *   stackedBars?: boolean   - stack bar variants (lines not stacked)
  *   layoutRows?: []         - vertical order: "title" | "chart" | "legend"
  *
  * FEATURES:
@@ -40,7 +43,7 @@
  *   LEGEND   - rowHeight, colorBoxSize, fontSize
  *   PADDING  - top, right (outer SVG margins)
  *   GAP      - spacing between layout elements
- *   CATEGORICAL - barWidth, barGap, groupGap
+ *   CATEGORICAL - barWidth, stackedBarWidth, barGap, groupGap
  */
 
 import * as d3 from "d3";
@@ -62,6 +65,7 @@ export type TimeSeriesChartProps = {
   timeFormat: (date: Date) => string;
   legendWidth?: number[];
   showAxis?: boolean;
+  stackedAreas?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
 };
 
@@ -516,6 +520,57 @@ function ChartLines({
   );
 }
 
+function StackedAreas({
+  areaSeries,
+  time,
+  layout,
+  xScale,
+  yScale,
+}: {
+  areaSeries: TimeSeriesItem[];
+  time: Date[];
+  layout: Layout;
+  xScale: XScale;
+  yScale: YScale;
+}) {
+  if (!layout.chart || areaSeries.length === 0) return null;
+  const { x: offsetX, y: offsetY } = layout.chart;
+
+  // Build cumulative data for stacking
+  const stackedData = areaSeries.map((_, seriesIdx) => {
+    return time.map((_, timeIdx) => {
+      const y0 = areaSeries
+        .slice(0, seriesIdx)
+        .reduce((sum, s) => sum + s.data[timeIdx], 0);
+      const y1 = y0 + areaSeries[seriesIdx].data[timeIdx];
+      return { y0, y1 };
+    });
+  });
+
+  return (
+    <g className="stacked-areas">
+      {areaSeries.map((series, seriesIdx) => {
+        const areaGenerator = d3
+          .area<{ y0: number; y1: number }>()
+          .x((_, i) => offsetX + xScale(time[i]))
+          .y0((d) => offsetY + yScale(d.y0))
+          .y1((d) => offsetY + yScale(d.y1));
+
+        const pathD = areaGenerator(stackedData[seriesIdx]);
+
+        return (
+          <path
+            key={seriesIdx}
+            d={pathD ?? undefined}
+            fill={series.color}
+            fillOpacity={0.3}
+          />
+        );
+      })}
+    </g>
+  );
+}
+
 // --- CategoricalChart Components ---
 
 function CategoricalAxisX({
@@ -741,8 +796,12 @@ function CategoricalLines({
 // --- Exported Chart Components ---
 
 export function TimeSeriesChart(props: TimeSeriesChartProps) {
-  const { timeSeries, time, title, timeFormat, legendWidth } = props;
+  const { timeSeries, time, title, timeFormat, legendWidth, stackedAreas } =
+    props;
   const showAxis = props.showAxis ?? true;
+
+  const areaSeries = timeSeries.filter((s) => s.variant === "area");
+  const nonAreaSeries = timeSeries.filter((s) => s.variant !== "area");
 
   const { layout, xScale, yScale, hasNegative } = useMemo(() => {
     if (timeSeries.length === 0 || time.length === 0) {
@@ -755,8 +814,21 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       chartWidth: CHART.width,
     });
 
-    const yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
-    const yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+    let yMin: number, yMax: number;
+    if (stackedAreas && areaSeries.length > 0) {
+      // For stacked areas, calculate cumulative sums at each time point
+      const stackedSums = time.map((_, timeIdx) =>
+        areaSeries.reduce((sum, s) => sum + s.data[timeIdx], 0),
+      );
+      const nonAreaValues = nonAreaSeries.flatMap((s) => s.data);
+      const allValues = [...stackedSums, ...nonAreaValues];
+      // Domain must include 0 since areas start from baseline
+      yMin = Math.min(0, d3.min(allValues) ?? 0);
+      yMax = Math.max(0, d3.max(allValues) ?? 0);
+    } else {
+      yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
+      yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+    }
 
     if (!yMin && !yMax) {
       return { layout: null, xScale: null, yScale: null, hasNegative: false };
@@ -776,7 +848,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       .range([CHART.inset.top, CHART.height - bottomInset]);
 
     return { layout, xScale, yScale, hasNegative };
-  }, [props, timeSeries, time]);
+  }, [props, timeSeries, areaSeries, nonAreaSeries, time, stackedAreas]);
 
   if (!layout || !xScale || !yScale) {
     return <svg />;
@@ -802,8 +874,17 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
         </>
       )}
       {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
+      {stackedAreas && (
+        <StackedAreas
+          areaSeries={areaSeries}
+          time={time}
+          layout={layout}
+          xScale={xScale}
+          yScale={yScale}
+        />
+      )}
       <ChartLines
-        timeSeries={timeSeries}
+        timeSeries={stackedAreas ? nonAreaSeries : timeSeries}
         time={time}
         layout={layout}
         xScale={xScale}

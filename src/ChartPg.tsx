@@ -67,6 +67,18 @@ const mixedBarsSeries: TimeSeriesItem[] = [
   },
 ];
 
+const stackedAreaSeries: TimeSeriesItem[] = [
+  { label: "Product A", color: "#1f77b4", variant: "area", data: [10, 15, 12, 18, 22, 19, 25] },
+  { label: "Product B", color: "#ff7f0e", variant: "area", data: [8, 12, 10, 14, 16, 15, 18] },
+  { label: "Product C", color: "#2ca02c", variant: "area", data: [5, 8, 7, 10, 12, 11, 14] },
+];
+
+const stackedAreaWithLine: TimeSeriesItem[] = [
+  { label: "Revenue A", color: "#1f77b4", variant: "area", data: [20, 25, 22, 28, 32, 29, 35] },
+  { label: "Revenue B", color: "#ff7f0e", variant: "area", data: [15, 18, 16, 20, 22, 20, 24] },
+  { label: "Target", color: "#d62728", variant: "line", data: [30, 38, 35, 45, 50, 46, 55] },
+];
+
 const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 
 const categoricalLabels = ["Class A", "Class B", "Class C", "Class D"];
@@ -224,6 +236,28 @@ export function ChartPg() {
         timeFormat={formatDate}
         legendWidth={[100]}
         showAxis={true}
+      />
+
+      <h3>Stacked areas</h3>
+      <TimeSeriesChart
+        title="Product Revenue (Stacked)"
+        timeSeries={stackedAreaSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[100, 100, 100]}
+        showAxis={true}
+        stackedAreas={true}
+      />
+
+      <h3>Stacked areas with line overlay</h3>
+      <TimeSeriesChart
+        title="Revenue vs Target"
+        timeSeries={stackedAreaWithLine}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[100, 100, 100]}
+        showAxis={true}
+        stackedAreas={true}
       />
     </div>
   );
