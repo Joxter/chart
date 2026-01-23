@@ -43,8 +43,8 @@ type TimeSeriesChartProps = {
   timeSeries: TimeSeriesItem[];
   time: Date[];
   timeFormat: (date: Date) => string;
-  legendWidth: number[];
-  showAxis: boolean;
+  legendWidth?: number[];
+  showAxis?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
 };
 
@@ -62,8 +62,14 @@ const CHART = {
   height: 100,
   lineWidth: 2,
   barWidth: 4,
+  zeroLine: {
+    color: "#999",
+    width: 1,
+    dashArray: "4,3",
+  },
   inset: {
     top: 5,
+    bottom: 5,
     right: 12,
   },
 };
@@ -114,7 +120,7 @@ function calculateLayout(props: TimeSeriesChartProps): Layout {
   const hasAxis = props.showAxis;
   const chartX = hasAxis ? AXIS.leftWidth : 0;
 
-  const columnCount = props.legendWidth.length;
+  const columnCount = props.legendWidth ? props.legendWidth.length : 0;
   const legendRowCount = Math.ceil(props.timeSeries.length / columnCount);
 
   let currentY = PADDING.top;
@@ -388,10 +394,10 @@ function ChartLegend({
   layout,
 }: {
   timeSeries: TimeSeriesItem[];
-  legendWidth: number[];
+  legendWidth?: number[];
   layout: Layout;
 }) {
-  if (!layout.legend) return null;
+  if (!layout.legend || !legendWidth) return null;
   const { x: startX, y: startY } = layout.legend;
   const columnCount = legendWidth.length;
 
@@ -432,12 +438,31 @@ function ChartLegend({
   );
 }
 
+function ZeroLine({ layout, scales }: { layout: Layout; scales: Scales }) {
+  if (!layout.chart) return null;
+  const { x: offsetX, y: offsetY } = layout.chart;
+
+  const zeroY = offsetY + scales.y(0);
+
+  return (
+    <line
+      x1={offsetX}
+      y1={zeroY}
+      x2={offsetX + CHART.width - CHART.inset.right}
+      y2={zeroY}
+      stroke={CHART.zeroLine.color}
+      strokeWidth={CHART.zeroLine.width}
+      strokeDasharray={CHART.zeroLine.dashArray}
+    />
+  );
+}
+
 export function TimeSeriesChart(props: TimeSeriesChartProps) {
   const { timeSeries, time, showAxis, title, timeFormat, legendWidth } = props;
 
-  const { layout, scales } = useMemo(() => {
+  const { layout, scales, hasNegative } = useMemo(() => {
     if (timeSeries.length === 0 || time.length === 0) {
-      return { layout: null, scales: null };
+      return { layout: null, scales: null, hasNegative: false };
     }
 
     const layout = calculateLayout(props);
@@ -446,8 +471,11 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     const yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
 
     if (!yMin && !yMax) {
-      return { layout: null, scales: null };
+      return { layout: null, scales: null, hasNegative: false };
     }
+
+    const hasNegative = yMin < 0;
+    const bottomInset = hasNegative ? CHART.inset.bottom : 0;
 
     const scales: Scales = {
       x: d3
@@ -457,10 +485,10 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       y: d3
         .scaleLinear()
         .domain([yMax, yMin])
-        .range([CHART.inset.top, CHART.height]),
+        .range([CHART.inset.top, CHART.height - bottomInset]),
     };
 
-    return { layout, scales };
+    return { layout, scales, hasNegative };
   }, [props, timeSeries, time]);
 
   if (!layout || !scales) {
@@ -481,6 +509,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
           <AxisX layout={layout} scales={scales} timeFormat={timeFormat} />
         </>
       )}
+      {hasNegative && <ZeroLine layout={layout} scales={scales} />}
       <ChartLines
         timeSeries={timeSeries}
         time={time}
@@ -578,7 +607,7 @@ export function ChartPg() {
         timeSeries={testTimeSeries}
         time={testTime}
         timeFormat={formatDate}
-        legendWidth={[120, 120]}
+        legendWidth={[100, 100, 100]}
         showAxis={true}
         layoutRows={["title", "legend", "chart"]}
       />
@@ -588,8 +617,6 @@ export function ChartPg() {
         timeSeries={testTimeSeries}
         time={testTime}
         timeFormat={formatDate}
-        legendWidth={[100, 100, 100]}
-        showAxis={true}
         layoutRows={["chart"]}
       />
 
