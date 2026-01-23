@@ -4,14 +4,20 @@
  * Uses D3 for scales/line generation, renders as React SVG elements.
  *
  * PROPS:
- *   title?: string         - chart title (optional)
- *   timeSeries: []         - array of {label, color, data: number[]}
- *   time: Date[]           - x-axis dates (same length as data arrays)
- *   timeFormat: fn         - (date: Date) => string for x-axis labels
- *   legendWidth: number[]  - column widths for legend, e.g. [120, 120] = 2 columns
- *   showAxis: boolean      - show X/Y axes
- *   layoutRows: []         - vertical order of elements, e.g. ["title", "chart", "legend"]
- *                            GAP constant controls spacing between elements
+ *   title?: string          - chart title
+ *   timeSeries: []          - array of {label, color, variant?, data: number[]}
+ *                             variant: "line" (default) | "area" | "bars"
+ *   time: Date[]            - x-axis dates (same length as data arrays)
+ *   timeFormat: fn          - (date: Date) => string for x-axis labels
+ *   legendWidth?: number[]  - column widths for legend, e.g. [120, 120] = 2 columns
+ *                             omit to hide legend
+ *   showAxis?: boolean      - show X/Y axes (default: true)
+ *   layoutRows?: []         - vertical order: "title" | "chart" | "legend"
+ *                             (default: ["title", "chart", "legend"])
+ *
+ * FEATURES:
+ *   - Supports negative values with automatic zero line
+ *   - Bottom inset added only when data has negative values
  *
  * LAYOUT:
  *   - Elements positioned with absolute coords (no <g transform>)
@@ -21,7 +27,7 @@
  *
  * CONSTANTS (adjust as needed):
  *   TITLE    - fontSize, height, color
- *   CHART    - width, height, lineWidth, inset{top, right}
+ *   CHART    - width, height, lineWidth, barWidth, zeroLine, inset{top, bottom, right}
  *   AXIS     - leftWidth, bottomHeight, fontSize, tickSize, tickCount
  *   LEGEND   - rowHeight, colorBoxSize, fontSize
  *   PADDING  - top, right (outer SVG margins)
