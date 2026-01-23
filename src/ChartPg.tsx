@@ -10,9 +10,8 @@
  *   timeFormat: fn         - (date: Date) => string for x-axis labels
  *   legendWidth: number[]  - column widths for legend, e.g. [120, 120] = 2 columns
  *   showAxis: boolean      - show X/Y axes
- *   layoutRows: []         - vertical order of elements with spacing
- *                            e.g. ["title", 12, "chart", 16, "legend"]
- *                            numbers = pixel spacing between elements
+ *   layoutRows: []         - vertical order of elements, e.g. ["title", "chart", "legend"]
+ *                            GAP constant controls spacing between elements
  *
  * LAYOUT:
  *   - Elements positioned with absolute coords (no <g transform>)
@@ -26,6 +25,7 @@
  *   AXIS     - leftWidth, bottomHeight, fontSize, tickSize, tickCount
  *   LEGEND   - rowHeight, colorBoxSize, fontSize
  *   PADDING  - top, right (outer SVG margins)
+ *   GAP      - spacing between layout elements
  */
 
 import * as d3 from "d3";
@@ -44,7 +44,7 @@ type TimeSeriesChartProps = {
   timeFormat: (date: Date) => string;
   legendWidth: number[];
   showAxis: boolean;
-  layoutRows: ("title" | "legend" | "chart" | number)[];
+  layoutRows: ("title" | "legend" | "chart")[];
 };
 
 const TITLE = {
@@ -55,8 +55,8 @@ const TITLE = {
 };
 
 const CHART = {
-  width: 600,
-  height: 200,
+  width: 500,
+  height: 100,
   lineWidth: 2,
   inset: {
     top: 5,
@@ -89,6 +89,8 @@ const LEGEND = {
   color: "#333",
 };
 
+const GAP = 5;
+
 type Layout = {
   totalWidth: number;
   totalHeight: number;
@@ -119,10 +121,15 @@ function calculateLayout(props: TimeSeriesChartProps): Layout {
   let axisXLayout: Layout["axisX"] = null;
   let legendLayout: Layout["legend"] = null;
 
-  for (const item of props.layoutRows) {
-    if (typeof item === "number") {
-      currentY += item;
-    } else if (item === "title") {
+  for (let i = 0; i < props.layoutRows.length; i++) {
+    const item = props.layoutRows[i];
+
+    // Add gap before element (except first)
+    if (i > 0) {
+      currentY += GAP;
+    }
+
+    if (item === "title") {
       if (props.title !== null) {
         titleLayout = { x: chartX, y: currentY };
         currentY += TITLE.height;
@@ -449,6 +456,16 @@ const testTimeSeries: TimeSeriesItem[] = [
   { label: "Series C", color: "#4daf4a", data: [20, 18, 22, 15, 20, 25, 30] },
 ];
 
+const mixedTimeSeries: TimeSeriesItem[] = [
+  { label: "Profit", color: "#2ca02c", data: [12, -5, 18, -12, 25, 8, -3] },
+  { label: "Loss", color: "#d62728", data: [-8, 15, -20, 10, -5, -15, 22] },
+];
+
+const aroundZeroSeries: TimeSeriesItem[] = [
+  { label: "Delta A", color: "#9467bd", data: [2, -1, 3, -2, 1, -3, 4] },
+  { label: "Delta B", color: "#ff7f0e", data: [-3, 2, -1, 4, -2, 1, -1] },
+];
+
 const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 
 export function ChartPg() {
@@ -462,7 +479,7 @@ export function ChartPg() {
         timeFormat={formatDate}
         legendWidth={[120, 120]}
         showAxis={true}
-        layoutRows={["title", 0, "chart", 0, "legend"]}
+        layoutRows={["title", "chart", "legend"]}
       />
 
       <h3>Legend before chart</h3>
@@ -473,7 +490,7 @@ export function ChartPg() {
         timeFormat={formatDate}
         legendWidth={[120, 120]}
         showAxis={true}
-        layoutRows={["title", 12, "legend", 16, "chart"]}
+        layoutRows={["title", "legend", "chart"]}
       />
 
       <h3>Chart only (no legend)</h3>
@@ -484,6 +501,28 @@ export function ChartPg() {
         legendWidth={[100, 100, 100]}
         showAxis={true}
         layoutRows={["chart"]}
+      />
+
+      <h3>Mixed values (positive & negative)</h3>
+      <TimeSeriesChart
+        title="Profit / Loss"
+        timeSeries={mixedTimeSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[100, 100]}
+        showAxis={true}
+        layoutRows={["title", "chart", "legend"]}
+      />
+
+      <h3>Small values around zero</h3>
+      <TimeSeriesChart
+        title="Delta Values"
+        timeSeries={aroundZeroSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[100, 100]}
+        showAxis={true}
+        layoutRows={["title", "chart", "legend"]}
       />
     </div>
   );
