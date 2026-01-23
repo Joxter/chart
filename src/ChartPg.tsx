@@ -76,6 +76,7 @@ const CHART = {
   inset: {
     top: 5,
     bottom: 5,
+    left: 5,
     right: 12,
   },
 };
@@ -107,6 +108,12 @@ const LEGEND = {
 
 const GAP = 5;
 
+const CATEGORICAL = {
+  barWidth: 20,
+  barGap: 2,
+  groupGap: 16,
+};
+
 type Layout = {
   totalWidth: number;
   totalHeight: number;
@@ -117,17 +124,23 @@ type Layout = {
   legend: { x: number; y: number; rows: number } | null;
 };
 
-type Scales = {
-  x: d3.ScaleTime<number, number>;
-  y: d3.ScaleLinear<number, number>;
+type YScale = d3.ScaleLinear<number, number>;
+
+type LayoutParams = {
+  title?: string | null;
+  showAxis?: boolean;
+  layoutRows?: ("title" | "legend" | "chart")[];
+  legendWidth?: number[];
+  seriesCount: number;
+  chartWidth: number;
 };
 
-function calculateLayout(props: TimeSeriesChartProps): Layout {
-  const hasAxis = props.showAxis;
+function calculateLayout(params: LayoutParams): Layout {
+  const hasAxis = params.showAxis ?? true;
   const chartX = hasAxis ? AXIS.leftWidth : 0;
 
-  const columnCount = props.legendWidth ? props.legendWidth.length : 0;
-  const legendRowCount = Math.ceil(props.timeSeries.length / columnCount);
+  const columnCount = params.legendWidth ? params.legendWidth.length : 0;
+  const legendRowCount = Math.ceil(params.seriesCount / columnCount);
 
   let currentY = PADDING.top;
 
@@ -136,18 +149,17 @@ function calculateLayout(props: TimeSeriesChartProps): Layout {
   let axisYLayout: Layout["axisY"] = null;
   let axisXLayout: Layout["axisX"] = null;
   let legendLayout: Layout["legend"] = null;
-  const rows = props.layoutRows || defaultLayoutRows;
+  const rows = params.layoutRows || defaultLayoutRows;
 
   for (let i = 0; i < rows.length; i++) {
     const item = rows[i];
 
-    // Add gap before element (except first)
     if (i > 0) {
       currentY += GAP;
     }
 
     if (item === "title") {
-      if (props.title !== null) {
+      if (params.title !== null) {
         titleLayout = { x: chartX, y: currentY };
         currentY += TITLE.height;
       }
@@ -155,7 +167,7 @@ function calculateLayout(props: TimeSeriesChartProps): Layout {
       chartLayout = {
         x: chartX,
         y: currentY,
-        width: CHART.width,
+        width: params.chartWidth,
         height: CHART.height,
       };
       if (hasAxis) {
@@ -172,7 +184,7 @@ function calculateLayout(props: TimeSeriesChartProps): Layout {
     }
   }
 
-  const totalWidth = chartX + CHART.width + PADDING.right;
+  const totalWidth = chartX + params.chartWidth + PADDING.right;
   const totalHeight = currentY;
 
   return {
@@ -205,10 +217,10 @@ function ChartTitle({ title, layout }: { title: string; layout: Layout }) {
   );
 }
 
-function AxisY({ layout, scales }: { layout: Layout; scales: Scales }) {
+function AxisY({ layout, yScale }: { layout: Layout; yScale: YScale }) {
   if (!layout.axisY) return null;
 
-  const ticks = scales.y.ticks(AXIS.tickCount);
+  const ticks = yScale.ticks(AXIS.tickCount);
   const { x, y } = layout.axisY;
   const chartRight = x + AXIS.leftWidth;
 
@@ -223,7 +235,7 @@ function AxisY({ layout, scales }: { layout: Layout; scales: Scales }) {
         strokeWidth={AXIS.lineWidth}
       />
       {ticks.map((tick) => {
-        const tickY = y + scales.y(tick);
+        const tickY = y + yScale(tick);
         return (
           <g key={tick}>
             <line
@@ -251,18 +263,20 @@ function AxisY({ layout, scales }: { layout: Layout; scales: Scales }) {
   );
 }
 
+type XScale = d3.ScaleTime<number, number>;
+
 function AxisX({
   layout,
-  scales,
+  xScale,
   timeFormat,
 }: {
   layout: Layout;
-  scales: Scales;
+  xScale: XScale;
   timeFormat: (date: Date) => string;
 }) {
-  if (!layout.axisX) return null;
+  if (!layout.axisX || !layout.chart) return null;
 
-  const ticks = scales.x.ticks(AXIS.tickCount);
+  const ticks = xScale.ticks(AXIS.tickCount);
   const { x, y } = layout.axisX;
 
   return (
@@ -270,13 +284,13 @@ function AxisX({
       <line
         x1={x}
         y1={y}
-        x2={x + CHART.width}
+        x2={x + layout.chart.width}
         y2={y}
         stroke={AXIS.color}
         strokeWidth={AXIS.lineWidth}
       />
       {ticks.map((tick) => {
-        const tickX = x + scales.x(tick);
+        const tickX = x + xScale(tick);
         return (
           <g key={tick.getTime()}>
             <line
@@ -307,12 +321,14 @@ function ChartLines({
   timeSeries,
   time,
   layout,
-  scales,
+  xScale,
+  yScale,
 }: {
   timeSeries: TimeSeriesItem[];
   time: Date[];
   layout: Layout;
-  scales: Scales;
+  xScale: XScale;
+  yScale: YScale;
 }) {
   if (!layout.chart) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
@@ -322,7 +338,7 @@ function ChartLines({
   const chartBottom = offsetY + CHART.height;
   const baselineY = Math.max(
     chartTop,
-    Math.min(chartBottom, offsetY + scales.y(0)),
+    Math.min(chartBottom, offsetY + yScale(0)),
   );
 
   return (
@@ -333,9 +349,9 @@ function ChartLines({
         if (variant === "area") {
           const areaGenerator = d3
             .area<number>()
-            .x((_, i) => offsetX + scales.x(time[i]))
+            .x((_, i) => offsetX + xScale(time[i]))
             .y0(baselineY)
-            .y1((d) => offsetY + scales.y(d));
+            .y1((d) => offsetY + yScale(d));
 
           const pathD = areaGenerator(series.data);
 
@@ -353,8 +369,8 @@ function ChartLines({
           return (
             <g key={idx}>
               {series.data.map((d, i) => {
-                const x = offsetX + scales.x(time[i]) - CHART.barWidth / 2;
-                const yVal = offsetY + scales.y(d);
+                const x = offsetX + xScale(time[i]) - CHART.barWidth / 2;
+                const yVal = offsetY + yScale(d);
                 const y = Math.min(yVal, baselineY);
                 const height = Math.abs(yVal - baselineY);
 
@@ -375,8 +391,8 @@ function ChartLines({
 
         const lineGenerator = d3
           .line<number>()
-          .x((_, i) => offsetX + scales.x(time[i]))
-          .y((d) => offsetY + scales.y(d));
+          .x((_, i) => offsetX + xScale(time[i]))
+          .y((d) => offsetY + yScale(d));
 
         const pathD = lineGenerator(series.data);
 
@@ -394,12 +410,14 @@ function ChartLines({
   );
 }
 
+type LegendItem = { label: string; color: string };
+
 function ChartLegend({
-  timeSeries,
+  items,
   legendWidth,
   layout,
 }: {
-  timeSeries: TimeSeriesItem[];
+  items: LegendItem[];
   legendWidth?: number[];
   layout: Layout;
 }) {
@@ -409,7 +427,7 @@ function ChartLegend({
 
   return (
     <g className="legend">
-      {timeSeries.map((series, index) => {
+      {items.map((item, index) => {
         const col = index % columnCount;
         const row = Math.floor(index / columnCount);
 
@@ -425,7 +443,7 @@ function ChartLegend({
               y={boxY}
               width={LEGEND.colorBoxSize}
               height={LEGEND.colorBoxSize}
-              fill={series.color}
+              fill={item.color}
             />
             <text
               x={colX + LEGEND.colorBoxSize + LEGEND.colorBoxMargin}
@@ -435,7 +453,7 @@ function ChartLegend({
               fill={LEGEND.color}
               dominantBaseline="middle"
             >
-              {series.label}
+              {item.label}
             </text>
           </g>
         );
@@ -444,17 +462,17 @@ function ChartLegend({
   );
 }
 
-function ZeroLine({ layout, scales }: { layout: Layout; scales: Scales }) {
+function ZeroLine({ layout, yScale }: { layout: Layout; yScale: YScale }) {
   if (!layout.chart) return null;
-  const { x: offsetX, y: offsetY } = layout.chart;
+  const { x: offsetX, y: offsetY, width: chartWidth } = layout.chart;
 
-  const zeroY = offsetY + scales.y(0);
+  const zeroY = offsetY + yScale(0);
 
   return (
     <line
-      x1={offsetX}
+      x1={offsetX + CHART.inset.left}
       y1={zeroY}
-      x2={offsetX + CHART.width - CHART.inset.right}
+      x2={offsetX + chartWidth - CHART.inset.right}
       y2={zeroY}
       stroke={CHART.zeroLine.color}
       strokeWidth={CHART.zeroLine.width}
@@ -463,43 +481,181 @@ function ZeroLine({ layout, scales }: { layout: Layout; scales: Scales }) {
   );
 }
 
-export function TimeSeriesChart(props: TimeSeriesChartProps) {
-  const { timeSeries, time, showAxis, title, timeFormat, legendWidth } = props;
+// --- CategoricalChart ---
 
-  const { layout, scales, hasNegative } = useMemo(() => {
-    if (timeSeries.length === 0 || time.length === 0) {
-      return { layout: null, scales: null, hasNegative: false };
+type CategoricalSeriesItem = {
+  legend: string;
+  color: string;
+  values: number[];
+};
+
+type CategoricalChartProps = {
+  title?: string | null;
+  labels: string[];
+  series: CategoricalSeriesItem[];
+  legendWidth?: number[];
+  showAxis?: boolean;
+  layoutRows?: ("title" | "legend" | "chart")[];
+};
+
+function CategoricalAxisX({
+  layout,
+  labels,
+  seriesCount,
+}: {
+  layout: Layout;
+  labels: string[];
+  seriesCount: number;
+}) {
+  if (!layout.axisX || !layout.chart) return null;
+
+  const { x, y } = layout.axisX;
+  const groupWidth =
+    seriesCount * CATEGORICAL.barWidth + (seriesCount - 1) * CATEGORICAL.barGap;
+
+  return (
+    <g className="x-axis">
+      <line
+        x1={x}
+        y1={y}
+        x2={x + layout.chart.width}
+        y2={y}
+        stroke={AXIS.color}
+        strokeWidth={AXIS.lineWidth}
+      />
+      {labels.map((label, i) => {
+        const groupX =
+          CHART.inset.left + i * (groupWidth + CATEGORICAL.groupGap);
+        const tickX = x + groupX + groupWidth / 2;
+        return (
+          <g key={i}>
+            <line
+              x1={tickX}
+              y1={y}
+              x2={tickX}
+              y2={y + AXIS.tickSize}
+              stroke={AXIS.color}
+            />
+            <text
+              x={tickX}
+              y={y + AXIS.tickSize + AXIS.fontSize}
+              fontSize={AXIS.fontSize}
+              fontFamily={AXIS.fontFamily}
+              fill={AXIS.color}
+              textAnchor="middle"
+            >
+              {label}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+function CategoricalBars({
+  series,
+  layout,
+  yScale,
+}: {
+  series: CategoricalSeriesItem[];
+  layout: Layout;
+  yScale: YScale;
+}) {
+  if (!layout.chart) return null;
+  const { x: offsetX, y: offsetY } = layout.chart;
+
+  const chartTop = offsetY + CHART.inset.top;
+  const chartBottom = offsetY + CHART.height;
+  const baselineY = Math.max(
+    chartTop,
+    Math.min(chartBottom, offsetY + yScale(0)),
+  );
+
+  const groupWidth =
+    series.length * CATEGORICAL.barWidth +
+    (series.length - 1) * CATEGORICAL.barGap;
+
+  return (
+    <g className="categorical-bars">
+      {series.map((s, seriesIdx) => (
+        <g key={seriesIdx}>
+          {s.values.map((value, catIdx) => {
+            const groupX =
+              CHART.inset.left + catIdx * (groupWidth + CATEGORICAL.groupGap);
+            const barX =
+              offsetX +
+              groupX +
+              seriesIdx * (CATEGORICAL.barWidth + CATEGORICAL.barGap);
+            const yVal = offsetY + yScale(value);
+            const y = Math.min(yVal, baselineY);
+            const height = Math.abs(yVal - baselineY);
+
+            return (
+              <rect
+                key={catIdx}
+                x={barX}
+                y={y}
+                width={CATEGORICAL.barWidth}
+                height={height}
+                fill={s.color}
+              />
+            );
+          })}
+        </g>
+      ))}
+    </g>
+  );
+}
+
+export function CategoricalChart(props: CategoricalChartProps) {
+  const { labels, series, title, legendWidth } = props;
+  const showAxis = props.showAxis ?? true;
+
+  const { layout, yScale, hasNegative } = useMemo(() => {
+    if (series.length === 0 || labels.length === 0) {
+      return { layout: null, yScale: null, hasNegative: false };
     }
 
-    const layout = calculateLayout(props);
+    const groupWidth =
+      series.length * CATEGORICAL.barWidth +
+      (series.length - 1) * CATEGORICAL.barGap;
+    const chartWidth =
+      CHART.inset.left +
+      labels.length * groupWidth +
+      (labels.length - 1) * CATEGORICAL.groupGap +
+      CHART.inset.right;
 
-    const yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
-    const yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+    const layout = calculateLayout({
+      ...props,
+      seriesCount: series.length,
+      chartWidth,
+    });
+
+    const allValues = series.flatMap((s) => s.values);
+    const yMin = d3.min(allValues) ?? 0;
+    const yMax = d3.max(allValues) ?? 0;
 
     if (!yMin && !yMax) {
-      return { layout: null, scales: null, hasNegative: false };
+      return { layout: null, yScale: null, hasNegative: false };
     }
 
     const hasNegative = yMin < 0;
     const bottomInset = hasNegative ? CHART.inset.bottom : 0;
 
-    const scales: Scales = {
-      x: d3
-        .scaleTime()
-        .domain(d3.extent(time) as [Date, Date])
-        .range([0, CHART.width - CHART.inset.right]),
-      y: d3
-        .scaleLinear()
-        .domain([yMax, yMin])
-        .range([CHART.inset.top, CHART.height - bottomInset]),
-    };
+    const yScale: YScale = d3
+      .scaleLinear()
+      .domain([yMax, yMin])
+      .range([CHART.inset.top, CHART.height - bottomInset]);
 
-    return { layout, scales, hasNegative };
-  }, [props, timeSeries, time]);
+    return { layout, yScale, hasNegative };
+  }, [props, series, labels]);
 
-  if (!layout || !scales) {
+  if (!layout || !yScale) {
     return <svg />;
   }
+
+  const legendItems = series.map((s) => ({ label: s.legend, color: s.color }));
 
   return (
     <svg
@@ -511,19 +667,96 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       {title && <ChartTitle title={title} layout={layout} />}
       {showAxis && (
         <>
-          <AxisY layout={layout} scales={scales} />
-          <AxisX layout={layout} scales={scales} timeFormat={timeFormat} />
+          <AxisY layout={layout} yScale={yScale} />
+          <CategoricalAxisX
+            layout={layout}
+            labels={labels}
+            seriesCount={series.length}
+          />
         </>
       )}
-      {hasNegative && <ZeroLine layout={layout} scales={scales} />}
+      {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
+      <CategoricalBars series={series} layout={layout} yScale={yScale} />
+      <ChartLegend
+        items={legendItems}
+        legendWidth={legendWidth}
+        layout={layout}
+      />
+    </svg>
+  );
+}
+
+export function TimeSeriesChart(props: TimeSeriesChartProps) {
+  const { timeSeries, time, title, timeFormat, legendWidth } = props;
+  const showAxis = props.showAxis ?? true;
+
+  const { layout, xScale, yScale, hasNegative } = useMemo(() => {
+    if (timeSeries.length === 0 || time.length === 0) {
+      return { layout: null, xScale: null, yScale: null, hasNegative: false };
+    }
+
+    const layout = calculateLayout({
+      ...props,
+      seriesCount: timeSeries.length,
+      chartWidth: CHART.width,
+    });
+
+    const yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
+    const yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+
+    if (!yMin && !yMax) {
+      return { layout: null, xScale: null, yScale: null, hasNegative: false };
+    }
+
+    const hasNegative = yMin < 0;
+    const bottomInset = hasNegative ? CHART.inset.bottom : 0;
+
+    const xScale = d3
+      .scaleTime()
+      .domain(d3.extent(time) as [Date, Date])
+      .range([CHART.inset.left, CHART.width - CHART.inset.right]);
+
+    const yScale: YScale = d3
+      .scaleLinear()
+      .domain([yMax, yMin])
+      .range([CHART.inset.top, CHART.height - bottomInset]);
+
+    return { layout, xScale, yScale, hasNegative };
+  }, [props, timeSeries, time]);
+
+  if (!layout || !xScale || !yScale) {
+    return <svg />;
+  }
+
+  const legendItems = timeSeries.map((s) => ({
+    label: s.label,
+    color: s.color,
+  }));
+
+  return (
+    <svg
+      width={layout.totalWidth}
+      height={layout.totalHeight}
+      style={{ backgroundColor: "#fff" }}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {title && <ChartTitle title={title} layout={layout} />}
+      {showAxis && (
+        <>
+          <AxisY layout={layout} yScale={yScale} />
+          <AxisX layout={layout} xScale={xScale} timeFormat={timeFormat} />
+        </>
+      )}
+      {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
       <ChartLines
         timeSeries={timeSeries}
         time={time}
         layout={layout}
-        scales={scales}
+        xScale={xScale}
+        yScale={yScale}
       />
       <ChartLegend
-        timeSeries={timeSeries}
+        items={legendItems}
         legendWidth={legendWidth}
         layout={layout}
       />
@@ -594,10 +827,38 @@ const mixedBarsSeries: TimeSeriesItem[] = [
 
 const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 
+const categoricalLabels = ["Class A", "Class B", "Class C", "Class D"];
+
+const categoricalSeries: CategoricalSeriesItem[] = [
+  { legend: "Before", color: "#e41a1c", values: [10, 25, 15, 30] },
+  { legend: "After", color: "#377eb8", values: [5, 15, 20, 18] },
+];
+
+const categoricalMixedSeries: CategoricalSeriesItem[] = [
+  { legend: "Delta", color: "#2ca02c", values: [8, -12, 15, -5] },
+  { legend: "Change", color: "#9467bd", values: [-5, 10, -8, 12] },
+];
+
 export function ChartPg() {
   return (
     <div>
-      <h2>Charts</h2>
+      <h2>Categorical Charts</h2>
+      <CategoricalChart
+        title="Sample Categorical"
+        labels={categoricalLabels}
+        series={categoricalSeries}
+        legendWidth={[80, 80]}
+      />
+
+      <h3>Categorical with negative values</h3>
+      <CategoricalChart
+        title="Changes by Class"
+        labels={categoricalLabels}
+        series={categoricalMixedSeries}
+        legendWidth={[80, 80]}
+      />
+
+      <h2>Time Series Charts</h2>
       <TimeSeriesChart
         title="Sample Time Series Chart"
         timeSeries={testTimeSeries}
