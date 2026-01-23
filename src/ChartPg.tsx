@@ -1,9 +1,9 @@
 /*
- * renderTimeSeriesChart(params: Params) -> SVG string
+ * TimeSeriesChart - React component for time series visualization
  *
- * Generates static SVG charts for PDF reports. Uses D3 for scales/line generation.
+ * Uses D3 for scales/line generation, renders as React SVG elements.
  *
- * PARAMS:
+ * PROPS:
  *   title?: string         - chart title (optional)
  *   timeSeries: []         - array of {label, color, data: number[]}
  *   time: Date[]           - x-axis dates (same length as data arrays)
@@ -26,14 +26,10 @@
  *   AXIS     - leftWidth, bottomHeight, fontSize, tickSize, tickCount
  *   LEGEND   - rowHeight, colorBoxSize, fontSize
  *   PADDING  - top, right (outer SVG margins)
- *
- * INTERNALS:
- *   calculateLayout(params) -> Layout   - computes positions for all elements
- *   renderTitle/AxisY/AxisX/ChartLines/Legend - render functions
- *   All render fns: (params, layout, scales?) -> string
  */
 
 import * as d3 from "d3";
+import { useMemo } from "react";
 
 type TimeSeriesItem = {
   label: string;
@@ -41,7 +37,7 @@ type TimeSeriesItem = {
   data: number[];
 };
 
-type Params = {
+type TimeSeriesChartProps = {
   title?: string | null;
   timeSeries: TimeSeriesItem[];
   time: Date[];
@@ -63,8 +59,8 @@ const CHART = {
   height: 200,
   lineWidth: 2,
   inset: {
-    top: 5, // отступ данных от верхнего края области графика
-    right: 12, // отступ данных от правого края области графика
+    top: 5,
+    right: 12,
   },
 };
 
@@ -80,8 +76,8 @@ const AXIS = {
 };
 
 const PADDING = {
-  top: 2, // внешний отступ сверху SVG
-  right: 16, // внешний отступ справа SVG (для подписей X-оси)
+  top: 2,
+  right: 16,
 };
 
 const LEGEND = {
@@ -103,13 +99,17 @@ type Layout = {
   legend: { x: number; y: number; rows: number } | null;
 };
 
-function calculateLayout(params: Params): Layout {
-  const hasAxis = params.showAxis;
+type Scales = {
+  x: d3.ScaleTime<number, number>;
+  y: d3.ScaleLinear<number, number>;
+};
+
+function calculateLayout(props: TimeSeriesChartProps): Layout {
+  const hasAxis = props.showAxis;
   const chartX = hasAxis ? AXIS.leftWidth : 0;
 
-  // Для легенды
-  const columnCount = params.legendWidth.length;
-  const legendRowCount = Math.ceil(params.timeSeries.length / columnCount);
+  const columnCount = props.legendWidth.length;
+  const legendRowCount = Math.ceil(props.timeSeries.length / columnCount);
 
   let currentY = PADDING.top;
 
@@ -119,12 +119,11 @@ function calculateLayout(params: Params): Layout {
   let axisXLayout: Layout["axisX"] = null;
   let legendLayout: Layout["legend"] = null;
 
-  for (const item of params.layoutRows) {
+  for (const item of props.layoutRows) {
     if (typeof item === "number") {
-      // Это отступ
       currentY += item;
     } else if (item === "title") {
-      if (params.title !== null) {
+      if (props.title !== null) {
         titleLayout = { x: chartX, y: currentY };
         currentY += TITLE.height;
       }
@@ -163,225 +162,276 @@ function calculateLayout(params: Params): Layout {
   };
 }
 
-type Scales = {
-  x: d3.ScaleTime<number, number>;
-  y: d3.ScaleLinear<number, number>;
-};
+// --- React Components ---
 
-function renderTitle(params: Params, layout: Layout): string {
-  if (!layout.title || !params.title) return "";
+function ChartTitle({ title, layout }: { title: string; layout: Layout }) {
+  if (!layout.title) return null;
   const { x, y } = layout.title;
-  return `<text
-    x="${x}"
-    y="${y + TITLE.fontSize}"
-    font-size="${TITLE.fontSize}"
-    font-family="${TITLE.fontFamily}"
-    fill="${TITLE.color}"
-  >${params.title}</text>`;
+
+  return (
+    <text
+      x={x}
+      y={y + TITLE.fontSize}
+      fontSize={TITLE.fontSize}
+      fontFamily={TITLE.fontFamily}
+      fill={TITLE.color}
+    >
+      {title}
+    </text>
+  );
 }
 
-function renderAxisY(_params: Params, layout: Layout, scales: Scales): string {
-  if (!layout.axisY) return "";
+function AxisY({ layout, scales }: { layout: Layout; scales: Scales }) {
+  if (!layout.axisY) return null;
 
   const ticks = scales.y.ticks(AXIS.tickCount);
   const { x, y } = layout.axisY;
   const chartRight = x + AXIS.leftWidth;
 
-  const axisLine = `
-    <line
-      x1="${chartRight}"
-      y1="${y}"
-      x2="${chartRight}"
-      y2="${y + CHART.height}"
-      stroke="${AXIS.color}"
-      stroke-width="${AXIS.lineWidth}"
-    />`;
-
-  const ticksAndLabels = ticks
-    .map((tick) => {
-      const tickY = y + scales.y(tick);
-      return `
+  return (
+    <g className="y-axis">
       <line
-        x1="${chartRight - AXIS.tickSize}"
-        y1="${tickY}"
-        x2="${chartRight}"
-        y2="${tickY}"
-        stroke="${AXIS.color}"
+        x1={chartRight}
+        y1={y}
+        x2={chartRight}
+        y2={y + CHART.height}
+        stroke={AXIS.color}
+        strokeWidth={AXIS.lineWidth}
       />
-      <text
-        x="${chartRight - AXIS.tickSize - 4}"
-        y="${tickY}"
-        font-size="${AXIS.fontSize}"
-        font-family="${AXIS.fontFamily}"
-        fill="${AXIS.color}"
-        text-anchor="end"
-        dominant-baseline="middle"
-      >${tick}</text>`;
-    })
-    .join("");
-
-  return "<g class='y-axis'>" + axisLine + ticksAndLabels + "</g>";
+      {ticks.map((tick) => {
+        const tickY = y + scales.y(tick);
+        return (
+          <g key={tick}>
+            <line
+              x1={chartRight - AXIS.tickSize}
+              y1={tickY}
+              x2={chartRight}
+              y2={tickY}
+              stroke={AXIS.color}
+            />
+            <text
+              x={chartRight - AXIS.tickSize - 4}
+              y={tickY}
+              fontSize={AXIS.fontSize}
+              fontFamily={AXIS.fontFamily}
+              fill={AXIS.color}
+              textAnchor="end"
+              dominantBaseline="middle"
+            >
+              {tick}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
 }
 
-function renderAxisX(params: Params, layout: Layout, scales: Scales): string {
-  if (!layout.axisX) return "";
+function AxisX({
+  layout,
+  scales,
+  timeFormat,
+}: {
+  layout: Layout;
+  scales: Scales;
+  timeFormat: (date: Date) => string;
+}) {
+  if (!layout.axisX) return null;
 
   const ticks = scales.x.ticks(AXIS.tickCount);
   const { x, y } = layout.axisX;
 
-  const axisLine = `
-    <line
-      x1="${x}"
-      y1="${y}"
-      x2="${x + CHART.width}"
-      y2="${y}"
-      stroke="${AXIS.color}"
-      stroke-width="${AXIS.lineWidth}"
-    />`;
-
-  const ticksAndLabels = ticks
-    .map((tick) => {
-      const tickX = x + scales.x(tick);
-      return `
+  return (
+    <g className="x-axis">
       <line
-        x1="${tickX}"
-        y1="${y}"
-        x2="${tickX}"
-        y2="${y + AXIS.tickSize}"
-        stroke="${AXIS.color}"
+        x1={x}
+        y1={y}
+        x2={x + CHART.width}
+        y2={y}
+        stroke={AXIS.color}
+        strokeWidth={AXIS.lineWidth}
       />
-      <text
-        x="${tickX}"
-        y="${y + AXIS.tickSize + AXIS.fontSize}"
-        font-size="${AXIS.fontSize}"
-        font-family="${AXIS.fontFamily}"
-        fill="${AXIS.color}"
-        text-anchor="middle"
-      >${params.timeFormat(tick)}</text>`;
-    })
-    .join("");
-
-  return "<g class='x-axis'>" + axisLine + ticksAndLabels + "</g>";
+      {ticks.map((tick) => {
+        const tickX = x + scales.x(tick);
+        return (
+          <g key={tick.getTime()}>
+            <line
+              x1={tickX}
+              y1={y}
+              x2={tickX}
+              y2={y + AXIS.tickSize}
+              stroke={AXIS.color}
+            />
+            <text
+              x={tickX}
+              y={y + AXIS.tickSize + AXIS.fontSize}
+              fontSize={AXIS.fontSize}
+              fontFamily={AXIS.fontFamily}
+              fill={AXIS.color}
+              textAnchor="middle"
+            >
+              {timeFormat(tick)}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
 }
 
-function renderChartLines(
-  params: Params,
-  layout: Layout,
-  scales: Scales,
-): string {
-  if (!layout.chart) return "";
+function ChartLines({
+  timeSeries,
+  time,
+  layout,
+  scales,
+}: {
+  timeSeries: TimeSeriesItem[];
+  time: Date[];
+  layout: Layout;
+  scales: Scales;
+}) {
+  if (!layout.chart) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
 
-  const lines = params.timeSeries
-    .map((series) => {
-      const lineGenerator = d3
-        .line<number>()
-        .x((_, i) => offsetX + scales.x(params.time[i]))
-        .y((d) => offsetY + scales.y(d));
+  return (
+    <g className="time-series">
+      {timeSeries.map((series, idx) => {
+        const lineGenerator = d3
+          .line<number>()
+          .x((_, i) => offsetX + scales.x(time[i]))
+          .y((d) => offsetY + scales.y(d));
 
-      const pathD = lineGenerator(series.data);
-      return `<path
-        d="${pathD}"
-        fill="none"
-        stroke="${series.color}"
-        stroke-width="${CHART.lineWidth}"
-      />`;
-    })
-    .join("");
+        const pathD = lineGenerator(series.data);
 
-  return "<g class='time-series'>" + lines + "</g>";
+        return (
+          <path
+            key={idx}
+            d={pathD ?? undefined}
+            fill="none"
+            stroke={series.color}
+            strokeWidth={CHART.lineWidth}
+          />
+        );
+      })}
+    </g>
+  );
 }
 
-function renderLegend(params: Params, layout: Layout): string {
-  if (!layout.legend) return "";
+function ChartLegend({
+  timeSeries,
+  legendWidth,
+  layout,
+}: {
+  timeSeries: TimeSeriesItem[];
+  legendWidth: number[];
+  layout: Layout;
+}) {
+  if (!layout.legend) return null;
   const { x: startX, y: startY } = layout.legend;
-  const columnCount = params.legendWidth.length;
+  const columnCount = legendWidth.length;
 
-  const legend = params.timeSeries
-    .map((series, index) => {
-      const col = index % columnCount;
-      const row = Math.floor(index / columnCount);
+  return (
+    <g className="legend">
+      {timeSeries.map((series, index) => {
+        const col = index % columnCount;
+        const row = Math.floor(index / columnCount);
 
-      const colX =
-        startX + params.legendWidth.slice(0, col).reduce((a, b) => a + b, 0);
-      const itemY = startY + row * LEGEND.rowHeight;
+        const colX =
+          startX + legendWidth.slice(0, col).reduce((a, b) => a + b, 0);
+        const itemY = startY + row * LEGEND.rowHeight;
+        const boxY = itemY + (LEGEND.rowHeight - LEGEND.colorBoxSize) / 2;
 
-      const boxY = itemY + (LEGEND.rowHeight - LEGEND.colorBoxSize) / 2;
+        return (
+          <g key={index}>
+            <rect
+              x={colX}
+              y={boxY}
+              width={LEGEND.colorBoxSize}
+              height={LEGEND.colorBoxSize}
+              fill={series.color}
+            />
+            <text
+              x={colX + LEGEND.colorBoxSize + LEGEND.colorBoxMargin}
+              y={itemY + LEGEND.rowHeight / 2}
+              fontSize={LEGEND.fontSize}
+              fontFamily={LEGEND.fontFamily}
+              fill={LEGEND.color}
+              dominantBaseline="middle"
+            >
+              {series.label}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
 
-      return `
-      <rect
-        x="${colX}"
-        y="${boxY}"
-        width="${LEGEND.colorBoxSize}"
-        height="${LEGEND.colorBoxSize}"
-        fill="${series.color}"
+export function TimeSeriesChart(props: TimeSeriesChartProps) {
+  const { timeSeries, time, showAxis, title, timeFormat, legendWidth } = props;
+
+  const { layout, scales } = useMemo(() => {
+    if (timeSeries.length === 0 || time.length === 0) {
+      return { layout: null, scales: null };
+    }
+
+    const layout = calculateLayout(props);
+
+    const yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
+    const yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+
+    if (!yMin && !yMax) {
+      return { layout: null, scales: null };
+    }
+
+    const scales: Scales = {
+      x: d3
+        .scaleTime()
+        .domain(d3.extent(time) as [Date, Date])
+        .range([0, CHART.width - CHART.inset.right]),
+      y: d3
+        .scaleLinear()
+        .domain([yMax, yMin])
+        .range([CHART.inset.top, CHART.height]),
+    };
+
+    return { layout, scales };
+  }, [props, timeSeries, time]);
+
+  if (!layout || !scales) {
+    return <svg />;
+  }
+
+  return (
+    <svg
+      width={layout.totalWidth}
+      height={layout.totalHeight}
+      style={{ backgroundColor: "#fff" }}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {title && <ChartTitle title={title} layout={layout} />}
+      {showAxis && (
+        <>
+          <AxisY layout={layout} scales={scales} />
+          <AxisX layout={layout} scales={scales} timeFormat={timeFormat} />
+        </>
+      )}
+      <ChartLines
+        timeSeries={timeSeries}
+        time={time}
+        layout={layout}
+        scales={scales}
       />
-      <text
-        x="${colX + LEGEND.colorBoxSize + LEGEND.colorBoxMargin}"
-        y="${itemY + LEGEND.rowHeight / 2}"
-        font-size="${LEGEND.fontSize}"
-        font-family="${LEGEND.fontFamily}"
-        fill="${LEGEND.color}"
-        dominant-baseline="middle"
-      >${series.label}</text>`;
-    })
-    .join("");
-
-  return "<g class='legend'>" + legend + "</g>";
+      <ChartLegend
+        timeSeries={timeSeries}
+        legendWidth={legendWidth}
+        layout={layout}
+      />
+    </svg>
+  );
 }
 
-function renderTimeSeriesChart(params: Params): string {
-  const { timeSeries, time, showAxis } = params;
-
-  if (timeSeries.length === 0 || time.length === 0) {
-    return "<svg></svg>";
-  }
-
-  const layout = calculateLayout(params);
-
-  // Создаём scales
-  const yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
-  const yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
-
-  if (!yMin && !yMax) {
-    return "<svg></svg>";
-  }
-
-  const scales: Scales = {
-    x: d3
-      .scaleTime()
-      .domain(d3.extent(time) as [Date, Date])
-      .range([0, CHART.width - CHART.inset.right]),
-    y: d3
-      .scaleLinear()
-      .domain([yMax, yMin]) // инвертируем для SVG координат
-      .range([CHART.inset.top, CHART.height]),
-  };
-
-  // Собираем SVG
-  const parts: string[] = [];
-
-  parts.push(renderTitle(params, layout));
-
-  if (showAxis) {
-    parts.push(renderAxisY(params, layout, scales));
-    parts.push(renderAxisX(params, layout, scales));
-  }
-
-  parts.push(renderChartLines(params, layout, scales));
-  parts.push(renderLegend(params, layout));
-
-  return `<svg 
-    width="${layout.totalWidth}"
-    height="${layout.totalHeight}"
-    style="background-color: #fff"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    ${parts.join("\n")}
-  </svg>`;
-}
-
-// --- Тестовые данные ---
+// --- Test data ---
 
 const testTime = [
   new Date("2024-01-01"),
@@ -399,50 +449,42 @@ const testTimeSeries: TimeSeriesItem[] = [
   { label: "Series C", color: "#4daf4a", data: [20, 18, 22, 15, 20, 25, 30] },
 ];
 
-export function ChartPg() {
-  const svg = renderTimeSeriesChart({
-    title: "Sample Time Series Chart",
-    timeSeries: testTimeSeries,
-    time: testTime,
-    timeFormat: (d) => d3.timeFormat("%b %d")(d),
-    legendWidth: [120, 120],
-    showAxis: true,
-    layoutRows: ["title", 0, "chart", 0, "legend"],
-  });
+const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 
+export function ChartPg() {
   return (
     <div>
       <h2>Charts</h2>
-      <div dangerouslySetInnerHTML={{ __html: svg }}></div>
+      <TimeSeriesChart
+        title="Sample Time Series Chart"
+        timeSeries={testTimeSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[120, 120]}
+        showAxis={true}
+        layoutRows={["title", 0, "chart", 0, "legend"]}
+      />
 
       <h3>Legend before chart</h3>
-      <div
-        dangerouslySetInnerHTML={{
-          __html: renderTimeSeriesChart({
-            title: "Legend First",
-            timeSeries: testTimeSeries,
-            time: testTime,
-            timeFormat: (d) => d3.timeFormat("%b %d")(d),
-            legendWidth: [120, 120],
-            showAxis: true,
-            layoutRows: ["title", 12, "legend", 16, "chart"],
-          }),
-        }}
-      ></div>
+      <TimeSeriesChart
+        title="Legend First"
+        timeSeries={testTimeSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[120, 120]}
+        showAxis={true}
+        layoutRows={["title", 12, "legend", 16, "chart"]}
+      />
 
       <h3>Chart only (no legend)</h3>
-      <div
-        dangerouslySetInnerHTML={{
-          __html: renderTimeSeriesChart({
-            timeSeries: testTimeSeries,
-            time: testTime,
-            timeFormat: (d) => d3.timeFormat("%b %d")(d),
-            legendWidth: [100, 100, 100],
-            showAxis: true,
-            layoutRows: ["chart"],
-          }),
-        }}
-      ></div>
+      <TimeSeriesChart
+        timeSeries={testTimeSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[100, 100, 100]}
+        showAxis={true}
+        layoutRows={["chart"]}
+      />
     </div>
   );
 }
