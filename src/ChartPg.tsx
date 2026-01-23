@@ -34,6 +34,7 @@ import { useMemo } from "react";
 type TimeSeriesItem = {
   label: string;
   color: string;
+  variant?: "line" | "area"; // "line" by default
   data: number[];
 };
 
@@ -300,9 +301,38 @@ function ChartLines({
   if (!layout.chart) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
 
+  // Baseline for area charts (y=0 position, clamped to chart bounds)
+  const chartTop = offsetY + CHART.inset.top;
+  const chartBottom = offsetY + CHART.height;
+  const baselineY = Math.max(
+    chartTop,
+    Math.min(chartBottom, offsetY + scales.y(0)),
+  );
+
   return (
     <g className="time-series">
       {timeSeries.map((series, idx) => {
+        const variant = series.variant ?? "line";
+
+        if (variant === "area") {
+          const areaGenerator = d3
+            .area<number>()
+            .x((_, i) => offsetX + scales.x(time[i]))
+            .y0(baselineY)
+            .y1((d) => offsetY + scales.y(d));
+
+          const pathD = areaGenerator(series.data);
+
+          return (
+            <path
+              key={idx}
+              d={pathD ?? undefined}
+              fill={series.color}
+              fillOpacity={0.3}
+            />
+          );
+        }
+
         const lineGenerator = d3
           .line<number>()
           .x((_, i) => offsetX + scales.x(time[i]))
@@ -466,6 +496,30 @@ const aroundZeroSeries: TimeSeriesItem[] = [
   { label: "Delta B", color: "#ff7f0e", data: [-3, 2, -1, 4, -2, 1, -1] },
 ];
 
+const areaTimeSeries: TimeSeriesItem[] = [
+  {
+    label: "Revenue",
+    color: "#1f77b4",
+    variant: "area",
+    data: [10, 15, 12, 18, 22, 19, 25],
+  },
+  {
+    label: "Baseline",
+    color: "#ff7f0e",
+    variant: "line",
+    data: [8, 8, 8, 8, 8, 8, 8],
+  },
+];
+
+const mixedAreaSeries: TimeSeriesItem[] = [
+  {
+    label: "Net Flow",
+    color: "#2ca02c",
+    variant: "area",
+    data: [5, -3, 8, -6, 12, -2, 7],
+  },
+];
+
 const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 
 export function ChartPg() {
@@ -521,6 +575,28 @@ export function ChartPg() {
         time={testTime}
         timeFormat={formatDate}
         legendWidth={[100, 100]}
+        showAxis={true}
+        layoutRows={["title", "chart", "legend"]}
+      />
+
+      <h3>Area chart with line</h3>
+      <TimeSeriesChart
+        title="Revenue vs Baseline"
+        timeSeries={areaTimeSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[100, 100]}
+        showAxis={true}
+        layoutRows={["title", "chart", "legend"]}
+      />
+
+      <h3>Area with mixed values</h3>
+      <TimeSeriesChart
+        title="Net Cash Flow"
+        timeSeries={mixedAreaSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[100]}
         showAxis={true}
         layoutRows={["title", "chart", "legend"]}
       />
