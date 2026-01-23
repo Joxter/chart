@@ -131,6 +131,40 @@ const stackedWithLine: CategoricalSeriesItem[] = [
   },
 ];
 
+const stackedDivergingSeries: CategoricalSeriesItem[] = [
+  { legend: "Income", color: "#2ca02c", values: [50, 80, 60, 90] },
+  { legend: "Savings", color: "#1f77b4", values: [20, 30, 25, 35] },
+  { legend: "Expenses", color: "#d62728", values: [-40, -60, -45, -70] },
+  { legend: "Taxes", color: "#ff7f0e", values: [-15, -25, -20, -30] },
+];
+
+const stackedDivergingAreas: TimeSeriesItem[] = [
+  {
+    legend: "Revenue",
+    color: "#2ca02c",
+    variant: "area",
+    data: [30, 45, 35, 50, 55, 48, 60],
+  },
+  {
+    legend: "Other Income",
+    color: "#1f77b4",
+    variant: "area",
+    data: [10, 15, 12, 18, 20, 16, 22],
+  },
+  {
+    legend: "Costs",
+    color: "#d62728",
+    variant: "area",
+    data: [-20, -30, -25, -35, -40, -32, -45],
+  },
+  {
+    legend: "Depreciation",
+    color: "#ff7f0e",
+    variant: "area",
+    data: [-5, -8, -6, -10, -12, -9, -14],
+  },
+];
+
 // --- Playground ---
 
 export function ChartPg() {
@@ -166,7 +200,7 @@ export function ChartPg() {
         labels={categoricalLabels}
         series={stackedSeries}
         stackedBars={true}
-        legendWidth={[60, 60, 60]}
+        legendWidth={[60, 60]}
       />
 
       <h3>Stacked bars with line overlay</h3>
@@ -175,7 +209,16 @@ export function ChartPg() {
         labels={categoricalLabels}
         series={stackedWithLine}
         stackedBars={true}
-        legendWidth={[80, 80, 80]}
+        legendWidth={[80, 80]}
+      />
+
+      <h3>Diverging stacked bars (positive/negative)</h3>
+      <CategoricalChart
+        title="Cash Flow Analysis"
+        labels={categoricalLabels}
+        series={stackedDivergingSeries}
+        stackedBars={true}
+        legendWidth={[80, 80]}
       />
 
       <h2>Time Series Charts</h2>
@@ -254,6 +297,17 @@ export function ChartPg() {
         time={testTime}
         timeFormat={formatDate}
         legendWidth={[100, 100, 100]}
+        showAxis={true}
+        stackedAreas={true}
+      />
+
+      <h3>Diverging stacked areas (positive/negative)</h3>
+      <TimeSeriesChart
+        title="Income vs Expenses"
+        timeSeries={stackedDivergingAreas}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[100, 100, 100, 100]}
         showAxis={true}
         stackedAreas={true}
       />

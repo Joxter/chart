@@ -178,9 +178,8 @@ function getBaselineY(offsetY: number, yScale: YScale): number {
 }
 
 function getCategoricalGroupWidth(barCount: number, stacked?: boolean): number {
-  if (stacked) {
-    return CATEGORICAL.stackedBarWidth;
-  }
+  if (stacked) return CATEGORICAL.stackedBarWidth;
+
   return (
     barCount * CATEGORICAL.barWidth +
     Math.max(0, barCount - 1) * CATEGORICAL.barGap
@@ -547,7 +546,10 @@ function StackedAreas({
     return point;
   });
 
-  const stack = d3.stack<Record<string, number>>().keys(keys);
+  const stack = d3
+    .stack<Record<string, number>>()
+    .keys(keys)
+    .offset(d3.stackOffsetDiverging);
   const stackedLayers = stack(stackData);
 
   return (
@@ -700,7 +702,10 @@ function StackedCategoricalBars({
     return point;
   });
 
-  const stack = d3.stack<Record<string, number>>().keys(keys);
+  const stack = d3
+    .stack<Record<string, number>>()
+    .keys(keys)
+    .offset(d3.stackOffsetDiverging);
   const stackedLayers = stack(stackData);
 
   return (
@@ -717,9 +722,9 @@ function StackedCategoricalBars({
             <rect
               key={`${seriesIdx}-${catIdx}`}
               x={barX}
-              y={y1}
+              y={Math.min(y0, y1)}
               width={CATEGORICAL.stackedBarWidth}
-              height={y0 - y1}
+              height={Math.abs(y0 - y1)}
               fill={barSeries[seriesIdx].color}
             />
           );
@@ -803,15 +808,24 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
 
       let yMin: number, yMax: number;
       if (stackedAreas && areaSeries.length > 0) {
-        // For stacked areas, calculate cumulative sums at each time point
-        const stackedSums = time.map((_, timeIdx) =>
-          areaSeries.reduce((sum, s) => sum + s.data[timeIdx], 0),
+        // For diverging stacks: positives stack up, negatives stack down
+        const positiveSums = time.map((_, timeIdx) =>
+          areaSeries.reduce((sum, s) => sum + Math.max(0, s.data[timeIdx]), 0),
+        );
+        const negativeSums = time.map((_, timeIdx) =>
+          areaSeries.reduce((sum, s) => sum + Math.min(0, s.data[timeIdx]), 0),
         );
         const nonAreaValues = nonAreaSeries.flatMap((s) => s.data);
-        const allValues = [...stackedSums, ...nonAreaValues];
-        // Domain must include 0 since areas start from baseline
-        yMin = Math.min(0, d3.min(allValues) ?? 0);
-        yMax = Math.max(0, d3.max(allValues) ?? 0);
+        yMax = Math.max(
+          0,
+          d3.max(positiveSums) ?? 0,
+          d3.max(nonAreaValues) ?? 0,
+        );
+        yMin = Math.min(
+          0,
+          d3.min(negativeSums) ?? 0,
+          d3.min(nonAreaValues) ?? 0,
+        );
       } else {
         yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
         yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
@@ -929,14 +943,16 @@ export function CategoricalChart(props: CategoricalChartProps) {
     // For stacked bars, calculate the sum of all bar values per category
     let yMin: number, yMax: number;
     if (stackedBars) {
-      const stackedSums = labels.map((_, catIdx) =>
-        barSeries.reduce((sum, s) => sum + s.values[catIdx], 0),
+      // For diverging stacks: positives stack up, negatives stack down
+      const positiveSums = labels.map((_, catIdx) =>
+        barSeries.reduce((sum, s) => sum + Math.max(0, s.values[catIdx]), 0),
+      );
+      const negativeSums = labels.map((_, catIdx) =>
+        barSeries.reduce((sum, s) => sum + Math.min(0, s.values[catIdx]), 0),
       );
       const lineValues = lineSeries.flatMap((s) => s.values);
-      const allValues = [...stackedSums, ...lineValues];
-      // Domain must include 0 since bars start from baseline
-      yMin = Math.min(0, d3.min(allValues) ?? 0);
-      yMax = Math.max(0, d3.max(allValues) ?? 0);
+      yMax = Math.max(0, d3.max(positiveSums) ?? 0, d3.max(lineValues) ?? 0);
+      yMin = Math.min(0, d3.min(negativeSums) ?? 0, d3.min(lineValues) ?? 0);
     } else {
       const allValues = series.flatMap((s) => s.values);
       yMin = d3.min(allValues) ?? 0;
