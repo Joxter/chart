@@ -34,7 +34,7 @@ import { useMemo } from "react";
 type TimeSeriesItem = {
   label: string;
   color: string;
-  variant?: "line" | "area"; // "line" by default
+  variant?: "line" | "area" | "bars"; // "line" by default
   data: number[];
 };
 
@@ -45,8 +45,10 @@ type TimeSeriesChartProps = {
   timeFormat: (date: Date) => string;
   legendWidth: number[];
   showAxis: boolean;
-  layoutRows: ("title" | "legend" | "chart")[];
+  layoutRows?: ("title" | "legend" | "chart")[];
 };
+
+const defaultLayoutRows = ["title", "chart", "legend"];
 
 const TITLE = {
   fontSize: 16,
@@ -59,6 +61,7 @@ const CHART = {
   width: 500,
   height: 100,
   lineWidth: 2,
+  barWidth: 4,
   inset: {
     top: 5,
     right: 12,
@@ -121,9 +124,10 @@ function calculateLayout(props: TimeSeriesChartProps): Layout {
   let axisYLayout: Layout["axisY"] = null;
   let axisXLayout: Layout["axisX"] = null;
   let legendLayout: Layout["legend"] = null;
+  const rows = props.layoutRows || defaultLayoutRows;
 
-  for (let i = 0; i < props.layoutRows.length; i++) {
-    const item = props.layoutRows[i];
+  for (let i = 0; i < rows.length; i++) {
+    const item = rows[i];
 
     // Add gap before element (except first)
     if (i > 0) {
@@ -333,6 +337,30 @@ function ChartLines({
           );
         }
 
+        if (variant === "bars") {
+          return (
+            <g key={idx}>
+              {series.data.map((d, i) => {
+                const x = offsetX + scales.x(time[i]) - CHART.barWidth / 2;
+                const yVal = offsetY + scales.y(d);
+                const y = Math.min(yVal, baselineY);
+                const height = Math.abs(yVal - baselineY);
+
+                return (
+                  <rect
+                    key={i}
+                    x={x}
+                    y={y}
+                    width={CHART.barWidth}
+                    height={height}
+                    fill={series.color}
+                  />
+                );
+              })}
+            </g>
+          );
+        }
+
         const lineGenerator = d3
           .line<number>()
           .x((_, i) => offsetX + scales.x(time[i]))
@@ -520,6 +548,15 @@ const mixedAreaSeries: TimeSeriesItem[] = [
   },
 ];
 
+const mixedBarsSeries: TimeSeriesItem[] = [
+  {
+    label: "Net Change",
+    color: "#17becf",
+    variant: "bars",
+    data: [8, -12, 15, -5, 20, -8, 10],
+  },
+];
+
 const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 
 export function ChartPg() {
@@ -533,7 +570,6 @@ export function ChartPg() {
         timeFormat={formatDate}
         legendWidth={[120, 120]}
         showAxis={true}
-        layoutRows={["title", "chart", "legend"]}
       />
 
       <h3>Legend before chart</h3>
@@ -565,7 +601,6 @@ export function ChartPg() {
         timeFormat={formatDate}
         legendWidth={[100, 100]}
         showAxis={true}
-        layoutRows={["title", "chart", "legend"]}
       />
 
       <h3>Small values around zero</h3>
@@ -576,7 +611,6 @@ export function ChartPg() {
         timeFormat={formatDate}
         legendWidth={[100, 100]}
         showAxis={true}
-        layoutRows={["title", "chart", "legend"]}
       />
 
       <h3>Area chart with line</h3>
@@ -587,18 +621,16 @@ export function ChartPg() {
         timeFormat={formatDate}
         legendWidth={[100, 100]}
         showAxis={true}
-        layoutRows={["title", "chart", "legend"]}
       />
 
-      <h3>Area with mixed values</h3>
+      <h3>Area and bars with mixed values</h3>
       <TimeSeriesChart
         title="Net Cash Flow"
-        timeSeries={mixedAreaSeries}
+        timeSeries={[...mixedAreaSeries, ...mixedBarsSeries]}
         time={testTime}
         timeFormat={formatDate}
         legendWidth={[100]}
         showAxis={true}
-        layoutRows={["title", "chart", "legend"]}
       />
     </div>
   );
