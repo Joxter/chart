@@ -44,6 +44,209 @@
  *   PADDING  - top, right (outer SVG margins)
  *   GAP      - spacing between layout elements
  *   CATEGORICAL - barWidth, stackedBarWidth, barGap, groupGap
+ *
+ * ============================================================================
+ * PLANNED REFACTORING: CombinedChart Architecture
+ * ============================================================================
+ *
+ * Goal: More flexible, composable API while simplifying internals.
+ *
+ * ARCHITECTURE OVERVIEW:
+ *
+ *   1. CombinedChart - Core layout component (new)
+ *   2. createTimeSeriesChart() - Pure helper function for time series
+ *   3. createCategoricalChart() - Pure helper function for categorical
+ *   4. TimeSeriesChart / CategoricalChart - Convenience wrappers (keep existing API)
+ *   5. Chart elements - Reusable SVG components (AxisY, AxisX, ChartLines, etc.)
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 1. CombinedChart Component
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ *   type CombinedChartProps = {
+ *     title?: string;
+ *     layoutRows?: ("title" | "legend" | "chart")[];
+ *     legendCols?: number[];                         // column widths
+ *     legendItems?: { label: string; color: string }[];
+ *     children: (ctx: ChartContext) => {
+ *       svg: ReactNode;
+ *       width: number;
+ *       height: number;
+ *     };
+ *   }
+ *
+ *   type ChartContext = {
+ *     offsetX: number;  // where chart area starts (for absolute positioning)
+ *     offsetY: number;
+ *   }
+ *
+ *   What CombinedChart does:
+ *   - Calculates legend dimensions from legendCols + legendItems
+ *   - Calculates title height (if present)
+ *   - Determines layout order from layoutRows
+ *   - Calls children(ctx) to get chart content + dimensions
+ *   - Renders <svg> with total dimensions
+ *   - Positions title, legend, and chart content at correct offsets
+ *   - All elements use ABSOLUTE positioning (no <g transform>)
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 2. createTimeSeriesChart() - Pure Helper Function
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ *   function createTimeSeriesChart(params: {
+ *     time: Date[];
+ *     series: TimeSeriesItem[];
+ *     width?: number;           // chart content width (default: CHART.width)
+ *     height?: number;          // chart content height (default: CHART.height)
+ *     stackedAreas?: boolean;
+ *     showAxis?: boolean;       // adds axis dimensions to total width/height
+ *   }): {
+ *     // Scales
+ *     xScale: d3.ScaleTime<number, number>;
+ *     yScale: d3.ScaleLinear<number, number>;
+ *
+ *     // Dimensions (total, including axes if showAxis=true)
+ *     width: number;
+ *     height: number;
+ *
+ *     // Chart area info (for positioning elements)
+ *     chartArea: {
+ *       x: number;        // offset from left (axis width if shown)
+ *       y: number;        // offset from top
+ *       width: number;    // content area width
+ *       height: number;   // content area height
+ *       inset: { top, bottom, left, right };
+ *       baseline: number; // Y position of zero line
+ *     };
+ *
+ *     // Data
+ *     hasNegative: boolean;
+ *     areaSeries: TimeSeriesItem[];
+ *     nonAreaSeries: TimeSeriesItem[];
+ *   }
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 3. createCategoricalChart() - Pure Helper Function
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ *   function createCategoricalChart(params: {
+ *     labels: string[];
+ *     series: CategoricalSeriesItem[];
+ *     height?: number;
+ *     stackedBars?: boolean;
+ *     showAxis?: boolean;
+ *   }): {
+ *     yScale: d3.ScaleLinear<number, number>;
+ *     width: number;            // auto-calculated from labels + bar count
+ *     height: number;
+ *     chartArea: { ... };
+ *     hasNegative: boolean;
+ *     barSeries: CategoricalSeriesItem[];
+ *     lineSeries: CategoricalSeriesItem[];
+ *     groupWidth: number;       // for positioning lines on bar groups
+ *   }
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 4. Chart Elements - Refactored for chartArea
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ *   Components receive chartArea + scales, render with absolute coords:
+ *
+ *   <AxisY yScale={yScale} chartArea={chartArea} />
+ *   <AxisX xScale={xScale} chartArea={chartArea} format={formatDate} />
+ *   <CategoricalAxisX labels={labels} chartArea={chartArea} groupWidth={groupWidth} />
+ *   <ZeroLine yScale={yScale} chartArea={chartArea} />
+ *   <ChartLines series={series} time={time} xScale={xScale} yScale={yScale} chartArea={chartArea} />
+ *   <StackedAreas series={series} time={time} xScale={xScale} yScale={yScale} chartArea={chartArea} />
+ *   <CategoricalBars series={series} yScale={yScale} chartArea={chartArea} />
+ *   <StackedCategoricalBars series={series} yScale={yScale} chartArea={chartArea} />
+ *   <CategoricalLines series={series} yScale={yScale} chartArea={chartArea} groupWidth={groupWidth} />
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 5. Usage Example
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ *   <CombinedChart
+ *     title="Revenue Analysis"
+ *     layoutRows={["title", "legend", "chart"]}
+ *     legendCols={[80, 80]}
+ *     legendItems={[
+ *       { label: "Revenue", color: "#2ca02c" },
+ *       { label: "Costs", color: "#d62728" },
+ *     ]}
+ *   >
+ *     {({ offsetX, offsetY }) => {
+ *       const chart = createTimeSeriesChart({
+ *         time: dates,
+ *         series: mySeries,
+ *         stackedAreas: true,
+ *         showAxis: true,
+ *       });
+ *
+ *       // Adjust chartArea positions with parent offsets
+ *       const chartArea = {
+ *         ...chart.chartArea,
+ *         x: chart.chartArea.x + offsetX,
+ *         y: chart.chartArea.y + offsetY,
+ *       };
+ *
+ *       return {
+ *         width: chart.width,
+ *         height: chart.height,
+ *         svg: (
+ *           <>
+ *             <AxisY yScale={chart.yScale} chartArea={chartArea} />
+ *             <AxisX xScale={chart.xScale} chartArea={chartArea} format={formatDate} />
+ *             {chart.hasNegative && <ZeroLine yScale={chart.yScale} chartArea={chartArea} />}
+ *             <StackedAreas
+ *               series={chart.areaSeries}
+ *               time={dates}
+ *               xScale={chart.xScale}
+ *               yScale={chart.yScale}
+ *               chartArea={chartArea}
+ *             />
+ *             <ChartLines
+ *               series={chart.nonAreaSeries}
+ *               time={dates}
+ *               xScale={chart.xScale}
+ *               yScale={chart.yScale}
+ *               chartArea={chartArea}
+ *             />
+ *           </>
+ *         ),
+ *       };
+ *     }}
+ *   </CombinedChart>
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 6. Convenience Wrappers (Keep Existing API)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ *   TimeSeriesChart and CategoricalChart become thin wrappers around
+ *   CombinedChart + createTimeSeriesChart/createCategoricalChart.
+ *   This preserves backward compatibility while using the new internals.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 7. Exports
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ *   // Core
+ *   export { CombinedChart }
+ *   export { createTimeSeriesChart, createCategoricalChart }
+ *
+ *   // Convenience (existing API)
+ *   export { TimeSeriesChart, CategoricalChart }
+ *
+ *   // Chart elements (for custom composition)
+ *   export { AxisY, AxisX, CategoricalAxisX, ZeroLine }
+ *   export { ChartLines, StackedAreas }
+ *   export { CategoricalBars, StackedCategoricalBars, CategoricalLines }
+ *
+ *   // Types
+ *   export type { TimeSeriesItem, CategoricalSeriesItem }
+ *   export type { ChartArea, ChartContext }
+ *
+ * ============================================================================
  */
 
 import * as d3 from "d3";
