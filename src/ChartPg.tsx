@@ -198,6 +198,18 @@ export function ChartPg() {
         showAxis={true}
       />
 
+      <h2>Custom Y Domain (starts at 0)</h2>
+      <TimeSeriesChart
+        title="With domain=[0]"
+        timeSeries={[
+          { legend: "Values", color: "#1f77b4", data: [50, 60, 55, 70, 65, 80, 75] },
+        ]}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[120]}
+        domain={[0]}
+      />
+
       <h2>Exceeded line</h2>
       <TimeSeriesChart
         title="Exceeded line"

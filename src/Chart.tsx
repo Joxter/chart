@@ -20,6 +20,7 @@
  *   layoutRows?: []         - vertical order: "title" | "chart" | "legend"
  *                             (default: ["title", "chart", "legend"])
  *   unit?: string          - unit label displayed above Y axis (e.g. "kWh", "%")
+ *   domain?: [min?, max?]  - extend Y axis domain (merged with data extent)
  *
  * CategoricalChart PROPS:
  *   title?: string          - chart title
@@ -31,6 +32,7 @@
  *   stackedBars?: boolean   - stack bar variants (lines not stacked)
  *   layoutRows?: []         - vertical order: "title" | "chart" | "legend"
  *   unit?: string          - unit label displayed above Y axis (e.g. "kWh", "%")
+ *   domain?: [min?, max?]  - extend Y axis domain (merged with data extent)
  *
  * FEATURES:
  *   - Supports negative values with automatic zero line
@@ -73,6 +75,7 @@ export type TimeSeriesChartProps = {
   stackedAreas?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
   unit?: string;
+  domain?: [number?, number?];
 };
 
 export type CategoricalSeriesItem = {
@@ -91,6 +94,7 @@ export type CategoricalChartProps = {
   stackedBars?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
   unit?: string;
+  domain?: [number?, number?];
 };
 
 const defaultLayoutRows = ["title", "legend", "chart"];
@@ -987,6 +991,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     legendWidth,
     stackedAreas,
     unit,
+    domain,
   } = props;
   const showAxis = props.showAxis ?? true;
 
@@ -1034,6 +1039,12 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     } else {
       yMin = d3.min(primarySeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
       yMax = d3.max(primarySeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+    }
+
+    // Merge with domain prop if provided
+    if (domain) {
+      if (domain[0] !== undefined) yMin = Math.min(yMin, domain[0]);
+      if (domain[1] !== undefined) yMax = Math.max(yMax, domain[1]);
     }
 
     if (!yMin && !yMax && !secondarySeries) {
@@ -1086,7 +1097,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       areaSeries,
       nonAreaSeries,
     };
-  }, [props, timeSeries, primarySeries, secondarySeries, time, stackedAreas]);
+  }, [props, timeSeries, primarySeries, secondarySeries, time, stackedAreas, domain]);
 
   if (!layout || !xScale || !yScale) {
     return <svg />;
@@ -1173,7 +1184,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
 }
 
 export function CategoricalChart(props: CategoricalChartProps) {
-  const { labels, series, title, legendWidth, stackedBars, unit } = props;
+  const { labels, series, title, legendWidth, stackedBars, unit, domain } = props;
   const showAxis = props.showAxis ?? true;
 
   const { layout, yScale, hasNegative, barSeries, lineSeries } = useMemo(() => {
@@ -1223,6 +1234,12 @@ export function CategoricalChart(props: CategoricalChartProps) {
       yMax = d3.max(allValues) ?? 0;
     }
 
+    // Merge with domain prop if provided
+    if (domain) {
+      if (domain[0] !== undefined) yMin = Math.min(yMin, domain[0]);
+      if (domain[1] !== undefined) yMax = Math.max(yMax, domain[1]);
+    }
+
     if (!yMin && !yMax) {
       return {
         layout: null,
@@ -1243,7 +1260,7 @@ export function CategoricalChart(props: CategoricalChartProps) {
       .range([CHART.inset.top, CHART.height - bottomInset]);
 
     return { layout, yScale, hasNegative, barSeries, lineSeries };
-  }, [props, series, labels, stackedBars]);
+  }, [props, series, labels, stackedBars, domain]);
 
   if (!layout || !yScale) {
     return <svg />;
