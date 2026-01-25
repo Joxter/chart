@@ -179,20 +179,10 @@ const stackedDivergingAreas: TimeSeriesItem[] = [
 
 export function ChartPg() {
   let crazyProps = [
-    //
-    {
-      item: "line",
-      legend: "Something bigger",
-      color: "#377eb8",
-      data: [5, 15, 20, 18, 25, 30, 28],
-    },
-    { item: "x-line", time: testTime, format: "" },
-    { item: "y-line", format: "", domain: [0, 100], width: 300 },
-    {
-      item: "category",
-      categories: ["class A", "class B"],
-    },
-    // { item: "legend", time: testTime, format: "" },
+    ...testTimeSeries,
+    { item: "x-line", time: testTime, format: formatDate, hide: true }, // hide?: boolean
+    { item: "y-line", width: 60 }, // hide?: boolean
+    { item: "legend", cols: [120, 120] },
   ];
 
   return (
@@ -202,6 +192,7 @@ export function ChartPg() {
         title="Sample Time Series Chart"
         timeSeries={testTimeSeries}
         time={testTime}
+        unit="EUR"
         timeFormat={formatDate}
         legendWidth={[120, 120]}
         showAxis={true}

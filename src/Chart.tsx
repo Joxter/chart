@@ -17,6 +17,7 @@
  *   stackedAreas?: boolean  - stack area variants (lines/bars not stacked)
  *   layoutRows?: []         - vertical order: "title" | "chart" | "legend"
  *                             (default: ["title", "chart", "legend"])
+ *   unit?: string          - unit label displayed above Y axis (e.g. "kWh", "%")
  *
  * CategoricalChart PROPS:
  *   title?: string          - chart title
@@ -27,6 +28,7 @@
  *   showAxis?: boolean      - show X/Y axes (default: true)
  *   stackedBars?: boolean   - stack bar variants (lines not stacked)
  *   layoutRows?: []         - vertical order: "title" | "chart" | "legend"
+ *   unit?: string          - unit label displayed above Y axis (e.g. "kWh", "%")
  *
  * FEATURES:
  *   - Supports negative values with automatic zero line
@@ -67,6 +69,7 @@ export type TimeSeriesChartProps = {
   showAxis?: boolean;
   stackedAreas?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
+  unit?: string;
 };
 
 export type CategoricalSeriesItem = {
@@ -84,6 +87,7 @@ export type CategoricalChartProps = {
   showAxis?: boolean;
   stackedBars?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
+  unit?: string;
 };
 
 const defaultLayoutRows = ["title", "legend", "chart"];
@@ -273,7 +277,15 @@ function ChartTitle({ title, layout }: { title: string; layout: Layout }) {
   );
 }
 
-function AxisY({ layout, yScale }: { layout: Layout; yScale: YScale }) {
+function AxisY({
+  layout,
+  yScale,
+  unit,
+}: {
+  layout: Layout;
+  yScale: YScale;
+  unit?: string;
+}) {
   if (!layout.axisY) return null;
 
   const ticks = yScale.ticks(AXIS.tickCount);
@@ -291,6 +303,20 @@ function AxisY({ layout, yScale }: { layout: Layout; yScale: YScale }) {
         stroke={AXIS.color}
         strokeWidth={AXIS.lineWidth}
       />
+      {unit && (
+        <text
+          x={AXIS.fontSize}
+          y={y + CHART.height / 2}
+          fontSize={AXIS.fontSize}
+          fontFamily={AXIS.fontFamily}
+          fill={AXIS.color}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          transform={`rotate(-90, ${AXIS.fontSize}, ${y + CHART.height / 2})`}
+        >
+          {unit}
+        </text>
+      )}
       {ticks.map((tick) => {
         const tickY = y + yScale(tick);
         return (
@@ -873,8 +899,15 @@ function CategoricalLines({
 }
 
 export function TimeSeriesChart(props: TimeSeriesChartProps) {
-  const { timeSeries, time, title, timeFormat, legendWidth, stackedAreas } =
-    props;
+  const {
+    timeSeries,
+    time,
+    title,
+    timeFormat,
+    legendWidth,
+    stackedAreas,
+    unit,
+  } = props;
   const showAxis = props.showAxis ?? true;
 
   const exceededSeries =
@@ -997,7 +1030,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       />
       {showAxis && (
         <>
-          <AxisY layout={layout} yScale={yScale} />
+          <AxisY layout={layout} yScale={yScale} unit={unit} />
           <AxisX
             layout={layout}
             xScale={xScale}
@@ -1016,7 +1049,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
 }
 
 export function CategoricalChart(props: CategoricalChartProps) {
-  const { labels, series, title, legendWidth, stackedBars } = props;
+  const { labels, series, title, legendWidth, stackedBars, unit } = props;
   const showAxis = props.showAxis ?? true;
 
   const { layout, yScale, hasNegative, barSeries, lineSeries } = useMemo(() => {
@@ -1125,7 +1158,7 @@ export function CategoricalChart(props: CategoricalChartProps) {
       />
       {showAxis && (
         <>
-          <AxisY layout={layout} yScale={yScale} />
+          <AxisY layout={layout} yScale={yScale} unit={unit} />
           <CategoricalAxisX
             layout={layout}
             labels={labels}
