@@ -5,10 +5,12 @@
  *
  * TimeSeriesChart PROPS:
  *   title?: string          - chart title
- *   timeSeries: []          - array of {label, color, variant?, data: number[]}
+ *   timeSeries: []          - array of {label, color, variant?, secondUnit?, data: number[]}
  *                             variant: "line" (default) | "area" | "bars" | "exceeded"
  *                             "exceeded" = threshold line; portions of other series
  *                             above this line are painted red (uses SVG mask)
+ *                             secondUnit?: string - if set, this series uses a separate
+ *                             right Y axis with its own scale (max 1 series with this prop)
  *   time: Date[]            - x-axis dates (same length as data arrays)
  *   timeFormat: fn          - (date: Date) => string for x-axis labels
  *   legendWidth?: number[]  - column widths for legend, e.g. [120, 120] = 2 columns
@@ -57,6 +59,7 @@ export type TimeSeriesItem = {
   legend: string;
   color: string;
   variant?: "line" | "area" | "bars" | "exceeded";
+  secondUnit?: string;
   data: number[];
 };
 
@@ -123,6 +126,7 @@ const CHART = {
 
 const AXIS = {
   leftWidth: 60,
+  rightWidth: 60,
   bottomHeight: 20,
   fontSize: 12,
   fontFamily: "sans-serif",
@@ -164,6 +168,7 @@ type Layout = {
   title: { x: number; y: number } | null;
   chart: { x: number; y: number; width: number; height: number } | null;
   axisY: { x: number; y: number } | null;
+  axisYRight: { x: number; y: number } | null;
   axisX: { x: number; y: number } | null;
   legend: { x: number; y: number; rows: number } | null;
 };
@@ -174,6 +179,7 @@ type XScale = d3.ScaleTime<number, number>;
 type LayoutParams = {
   title?: string | null;
   showAxis?: boolean;
+  hasRightAxis?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
   legendWidth?: number[];
   seriesCount: number;
@@ -199,6 +205,7 @@ function getCategoricalGroupWidth(barCount: number, stacked?: boolean): number {
 
 function calculateLayout(params: LayoutParams): Layout {
   const hasAxis = params.showAxis ?? true;
+  const hasRightAxis = params.hasRightAxis ?? false;
   const chartX = hasAxis ? AXIS.leftWidth : 0;
 
   const columnCount = params.legendWidth ? params.legendWidth.length : 0;
@@ -209,6 +216,7 @@ function calculateLayout(params: LayoutParams): Layout {
   let titleLayout: Layout["title"] = null;
   let chartLayout: Layout["chart"] = null;
   let axisYLayout: Layout["axisY"] = null;
+  let axisYRightLayout: Layout["axisYRight"] = null;
   let axisXLayout: Layout["axisX"] = null;
   let legendLayout: Layout["legend"] = null;
   const rows = params.layoutRows || defaultLayoutRows;
@@ -235,6 +243,9 @@ function calculateLayout(params: LayoutParams): Layout {
       if (hasAxis) {
         axisYLayout = { x: 0, y: currentY };
         axisXLayout = { x: chartX, y: currentY + CHART.height };
+        if (hasRightAxis) {
+          axisYRightLayout = { x: chartX + params.chartWidth, y: currentY };
+        }
       }
       currentY += CHART.height;
       if (hasAxis) {
@@ -246,7 +257,9 @@ function calculateLayout(params: LayoutParams): Layout {
     }
   }
 
-  const totalWidth = chartX + params.chartWidth + PADDING.right;
+  const rightAxisWidth = hasAxis && hasRightAxis ? AXIS.rightWidth : 0;
+  const totalWidth =
+    chartX + params.chartWidth + rightAxisWidth + PADDING.right;
   const totalHeight = currentY;
 
   return {
@@ -255,6 +268,7 @@ function calculateLayout(params: LayoutParams): Layout {
     title: titleLayout,
     chart: chartLayout,
     axisY: axisYLayout,
+    axisYRight: axisYRightLayout,
     axisX: axisXLayout,
     legend: legendLayout,
   };
@@ -335,6 +349,72 @@ function AxisY({
               fontFamily={AXIS.fontFamily}
               fill={AXIS.color}
               textAnchor="end"
+              dominantBaseline="middle"
+            >
+              {tickFormat(tick)}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+function AxisYRight({
+  layout,
+  yScale,
+  unit,
+}: {
+  layout: Layout;
+  yScale: YScale;
+  unit?: string;
+}) {
+  if (!layout.axisYRight) return null;
+
+  const ticks = yScale.ticks(AXIS.tickCount);
+  const tickFormat = yScale.tickFormat(AXIS.tickCount, "s");
+  const { x, y } = layout.axisYRight;
+
+  return (
+    <g className="y-axis-right">
+      <line
+        x1={x}
+        y1={y}
+        x2={x}
+        y2={y + CHART.height}
+        stroke={AXIS.color}
+        strokeWidth={AXIS.lineWidth}
+      />
+      <text
+        x={x + AXIS.rightWidth - AXIS.fontSize}
+        y={y + CHART.height / 2}
+        fontSize={AXIS.fontSize}
+        fontFamily={AXIS.fontFamily}
+        fill={AXIS.color}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        transform={`rotate(90, ${x + AXIS.rightWidth - AXIS.fontSize}, ${y + CHART.height / 2})`}
+      >
+        {unit}
+      </text>
+      {ticks.map((tick) => {
+        const tickY = y + yScale(tick);
+        return (
+          <g key={tick}>
+            <line
+              x1={x}
+              y1={tickY}
+              x2={x + AXIS.tickSize}
+              y2={tickY}
+              stroke={AXIS.color}
+            />
+            <text
+              x={x + AXIS.tickSize + AXIS.tickLabelGap}
+              y={tickY}
+              fontSize={AXIS.fontSize}
+              fontFamily={AXIS.fontFamily}
+              fill={AXIS.color}
+              textAnchor="start"
               dominantBaseline="middle"
             >
               {tickFormat(tick)}
@@ -915,70 +995,98 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
 
   const exceededMaskId = exceededSeries ? "exceeded-mask" : "";
 
-  const { layout, xScale, yScale, hasNegative, areaSeries, nonAreaSeries } =
-    useMemo(() => {
-      // exceeded is treated as a line for rendering, so include it in nonAreaSeries
-      const areaSeries = timeSeries.filter((s) => s.variant === "area");
-      const nonAreaSeries = timeSeries.filter((s) => s.variant !== "area");
+  const secondarySeries = timeSeries.find((s) => s.secondUnit) ?? null;
+  const primarySeries = timeSeries.filter((s) => !s.secondUnit);
 
-      const layout = calculateLayout({
-        ...props,
-        seriesCount: timeSeries.length,
-        chartWidth: CHART.width,
-      });
+  const {
+    layout,
+    xScale,
+    yScale,
+    yScaleRight,
+    hasNegative,
+    areaSeries,
+    nonAreaSeries,
+  } = useMemo(() => {
+    // exceeded is treated as a line for rendering, so include it in nonAreaSeries
+    const areaSeries = primarySeries.filter((s) => s.variant === "area");
+    const nonAreaSeries = primarySeries.filter((s) => s.variant !== "area");
 
-      let yMin: number, yMax: number;
-      if (stackedAreas && areaSeries.length > 0) {
-        // For diverging stacks: positives stack up, negatives stack down
-        const positiveSums = time.map((_, timeIdx) =>
-          areaSeries.reduce((sum, s) => sum + Math.max(0, s.data[timeIdx]), 0),
-        );
-        const negativeSums = time.map((_, timeIdx) =>
-          areaSeries.reduce((sum, s) => sum + Math.min(0, s.data[timeIdx]), 0),
-        );
-        const nonAreaValues = nonAreaSeries.flatMap((s) => s.data);
-        yMax = Math.max(
-          0,
-          d3.max(positiveSums) ?? 0,
-          d3.max(nonAreaValues) ?? 0,
-        );
-        yMin = Math.min(
-          0,
-          d3.min(negativeSums) ?? 0,
-          d3.min(nonAreaValues) ?? 0,
-        );
-      } else {
-        yMin = d3.min(timeSeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
-        yMax = d3.max(timeSeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
-      }
+    const layout = calculateLayout({
+      ...props,
+      seriesCount: timeSeries.length,
+      chartWidth: CHART.width,
+      hasRightAxis: !!secondarySeries,
+    });
 
-      if (!yMin && !yMax) {
-        return {
-          layout: null,
-          xScale: null,
-          yScale: null,
-          hasNegative: false,
-          areaSeries: [],
-          nonAreaSeries: [],
-        };
-      }
+    // Calculate yScale for primary series (left axis)
+    let yMin: number, yMax: number;
+    if (stackedAreas && areaSeries.length > 0) {
+      // For diverging stacks: positives stack up, negatives stack down
+      const positiveSums = time.map((_, timeIdx) =>
+        areaSeries.reduce((sum, s) => sum + Math.max(0, s.data[timeIdx]), 0),
+      );
+      const negativeSums = time.map((_, timeIdx) =>
+        areaSeries.reduce((sum, s) => sum + Math.min(0, s.data[timeIdx]), 0),
+      );
+      const nonAreaValues = nonAreaSeries.flatMap((s) => s.data);
+      yMax = Math.max(0, d3.max(positiveSums) ?? 0, d3.max(nonAreaValues) ?? 0);
+      yMin = Math.min(0, d3.min(negativeSums) ?? 0, d3.min(nonAreaValues) ?? 0);
+    } else {
+      yMin = d3.min(primarySeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
+      yMax = d3.max(primarySeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+    }
 
-      const hasNegative = yMin < 0;
-      const bottomInset = hasNegative ? CHART.inset.bottom : 0;
+    if (!yMin && !yMax && !secondarySeries) {
+      return {
+        layout: null,
+        xScale: null,
+        yScale: null,
+        yScaleRight: null,
+        hasNegative: false,
+        areaSeries: [],
+        nonAreaSeries: [],
+      };
+    }
 
-      const xScale = d3
-        .scaleTime()
-        .domain(d3.extent(time) as [Date, Date])
-        .range([CHART.inset.left, CHART.width - CHART.inset.right]);
+    const hasNegative = yMin < 0;
+    const bottomInset = hasNegative ? CHART.inset.bottom : 0;
 
-      const yScale: YScale = d3
+    const xScale = d3
+      .scaleTime()
+      .domain(d3.extent(time) as [Date, Date])
+      .range([CHART.inset.left, CHART.width - CHART.inset.right]);
+
+    const yScale: YScale = d3
+      .scaleLinear()
+      .domain([yMax, yMin])
+      .nice()
+      .range([CHART.inset.top, CHART.height - bottomInset]);
+
+    // Calculate yScaleRight for secondary series (right axis)
+    let yScaleRight: YScale | null = null;
+    if (secondarySeries) {
+      const secMin = d3.min(secondarySeries.data) ?? 0;
+      const secMax = d3.max(secondarySeries.data) ?? 0;
+      const secHasNegative = secMin < 0;
+      const secBottomInset = secHasNegative ? CHART.inset.bottom : 0;
+
+      yScaleRight = d3
         .scaleLinear()
-        .domain([yMax, yMin])
+        .domain([secMax, secMin])
         .nice()
-        .range([CHART.inset.top, CHART.height - bottomInset]);
+        .range([CHART.inset.top, CHART.height - secBottomInset]);
+    }
 
-      return { layout, xScale, yScale, hasNegative, areaSeries, nonAreaSeries };
-    }, [props, timeSeries, time, stackedAreas]);
+    return {
+      layout,
+      xScale,
+      yScale,
+      yScaleRight,
+      hasNegative,
+      areaSeries,
+      nonAreaSeries,
+    };
+  }, [props, timeSeries, primarySeries, secondarySeries, time, stackedAreas]);
 
   if (!layout || !xScale || !yScale) {
     return <svg />;
@@ -1021,16 +1129,32 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
         />
       )}
       <ChartLines
-        timeSeries={stackedAreas ? nonAreaSeries : timeSeries}
+        timeSeries={stackedAreas ? nonAreaSeries : primarySeries}
         time={time}
         layout={layout}
         xScale={xScale}
         yScale={yScale}
         exceededMaskId={exceededMaskId}
       />
+      {secondarySeries && yScaleRight && (
+        <ChartLines
+          timeSeries={[secondarySeries]}
+          time={time}
+          layout={layout}
+          xScale={xScale}
+          yScale={yScaleRight}
+        />
+      )}
       {showAxis && (
         <>
           <AxisY layout={layout} yScale={yScale} unit={unit} />
+          {secondarySeries && yScaleRight && (
+            <AxisYRight
+              layout={layout}
+              yScale={yScaleRight}
+              unit={secondarySeries.secondUnit}
+            />
+          )}
           <AxisX
             layout={layout}
             xScale={xScale}

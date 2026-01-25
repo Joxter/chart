@@ -220,6 +220,29 @@ export function ChartPg() {
         legendWidth={[120, 120]}
       />
 
+      <h2>Dual Y-Axis (secondUnit)</h2>
+      <TimeSeriesChart
+        title="Power Consumption vs Temperature"
+        timeSeries={[
+          {
+            legend: "Power",
+            color: "#1f77b4",
+            variant: "line",
+            data: [120, 180, 150, 200, 175, 220, 190],
+          },
+          {
+            legend: "Temperature",
+            color: "#d62728",
+            secondUnit: "°C",
+            data: [18, 22, 20, 25, 23, 28, 24],
+          },
+        ]}
+        time={testTime}
+        timeFormat={formatDate}
+        unit="kW"
+        legendWidth={[120, 120]}
+      />
+
       <h2>Categorical Charts</h2>
       <CategoricalChart
         title="Sample Categorical"
