@@ -207,6 +207,28 @@ export function ChartPg() {
         showAxis={true}
       />
 
+      <h2>Exceeded line</h2>
+      <TimeSeriesChart
+        title="Exceeded line"
+        timeSeries={[
+          {
+            legend: "Actual",
+            color: "#2196F3",
+            variant: "area",
+            data: [22, 15, 15, 30, 20],
+          },
+          {
+            legend: "Threshold",
+            color: "#666",
+            variant: "exceeded",
+            data: [20, 25, 22, 20, 15],
+          },
+        ]}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[120, 120]}
+      />
+
       <h2>Categorical Charts</h2>
       <CategoricalChart
         title="Sample Categorical"

@@ -6,7 +6,9 @@
  * TimeSeriesChart PROPS:
  *   title?: string          - chart title
  *   timeSeries: []          - array of {label, color, variant?, data: number[]}
- *                             variant: "line" (default) | "area" | "bars"
+ *                             variant: "line" (default) | "area" | "bars" | "exceeded"
+ *                             "exceeded" = threshold line; portions of other series
+ *                             above this line are painted red (uses SVG mask)
  *   time: Date[]            - x-axis dates (same length as data arrays)
  *   timeFormat: fn          - (date: Date) => string for x-axis labels
  *   legendWidth?: number[]  - column widths for legend, e.g. [120, 120] = 2 columns
@@ -38,7 +40,7 @@
  *
  * CONSTANTS (adjust as needed):
  *   TITLE    - fontSize, height, color
- *   CHART    - width, height, lineWidth, barWidth, zeroLine, inset{top, bottom, left, right}
+ *   CHART    - width, height, lineWidth, barWidth, zeroLine, exceeded, inset{...}
  *   AXIS     - leftWidth, bottomHeight, fontSize, tickSize, tickCount
  *   LEGEND   - rowHeight, colorBoxSize, fontSize
  *   PADDING  - top, right (outer SVG margins)
@@ -52,7 +54,7 @@ import { useMemo } from "react";
 export type TimeSeriesItem = {
   legend: string;
   color: string;
-  variant?: "line" | "area" | "bars";
+  variant?: "line" | "area" | "bars" | "exceeded";
   data: number[];
 };
 
@@ -98,11 +100,14 @@ const CHART = {
   height: 100,
   lineWidth: 2,
   barWidth: 4,
-  areaOpacity: 0.3,
+  areaOpacity: 1,
   zeroLine: {
     color: "#999",
     width: 1,
     dashArray: "4,3",
+  },
+  exceeded: {
+    color: "#e53935",
   },
   inset: {
     top: 5,
@@ -384,6 +389,49 @@ function ZeroLine({ layout, yScale }: { layout: Layout; yScale: YScale }) {
   );
 }
 
+function ExceededMask({
+  maskId,
+  exceededSeries,
+  time,
+  layout,
+  xScale,
+  yScale,
+}: {
+  maskId: string;
+  exceededSeries: TimeSeriesItem;
+  time: Date[];
+  layout: Layout;
+  xScale: XScale;
+  yScale: YScale;
+}) {
+  if (!layout.chart) return null;
+  const { x: offsetX, y: offsetY, width: chartWidth } = layout.chart;
+
+  // Create a path that covers the area BELOW the threshold line
+  // Mask: white = visible, black = hidden
+  // We hide below threshold so only exceeded (above) portions show through
+  const areaBelowThreshold = d3
+    .area<number>()
+    .x((_, i) => offsetX + xScale(time[i]))
+    .y0((d) => offsetY + yScale(d)) // Threshold line
+    .y1(offsetY + CHART.height); // Bottom of chart
+
+  const pathD = areaBelowThreshold(exceededSeries.data);
+
+  return (
+    <mask id={maskId}>
+      <rect
+        x={offsetX}
+        y={offsetY}
+        width={chartWidth}
+        height={CHART.height}
+        fill="white"
+      />
+      <path d={pathD ?? undefined} fill="black" />
+    </mask>
+  );
+}
+
 function AxisX({
   layout,
   xScale,
@@ -444,82 +492,116 @@ function ChartLines({
   layout,
   xScale,
   yScale,
+  exceededMaskId,
 }: {
   timeSeries: TimeSeriesItem[];
   time: Date[];
   layout: Layout;
   xScale: XScale;
   yScale: YScale;
+  exceededMaskId?: string;
 }) {
   if (!layout.chart) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
   const baselineY = getBaselineY(offsetY, yScale);
 
-  return (
-    <g className="time-series">
-      {timeSeries.map((series, idx) => {
-        const variant = series.variant ?? "line";
+  const renderArea = (series: TimeSeriesItem, idx: number, maskId?: string) => {
+    const areaGenerator = d3
+      .area<number>()
+      .x((_, i) => offsetX + xScale(time[i]))
+      .y0(baselineY)
+      .y1((d) => offsetY + yScale(d));
 
-        if (variant === "area") {
-          const areaGenerator = d3
-            .area<number>()
-            .x((_, i) => offsetX + xScale(time[i]))
-            .y0(baselineY)
-            .y1((d) => offsetY + yScale(d));
+    const pathD = areaGenerator(series.data);
 
-          const pathD = areaGenerator(series.data);
+    return (
+      <path
+        key={maskId ? `${idx}-exceeded` : idx}
+        d={pathD ?? undefined}
+        fill={maskId ? CHART.exceeded.color : series.color}
+        fillOpacity={CHART.areaOpacity}
+        mask={maskId ? `url(#${maskId})` : undefined}
+      />
+    );
+  };
 
-          return (
-            <path
-              key={idx}
-              d={pathD ?? undefined}
-              fill={series.color}
-              fillOpacity={CHART.areaOpacity}
-            />
-          );
-        }
-
-        if (variant === "bars") {
-          return (
-            <g key={idx}>
-              {series.data.map((d, i) => {
-                const x = offsetX + xScale(time[i]) - CHART.barWidth / 2;
-                const yVal = offsetY + yScale(d);
-                const y = Math.min(yVal, baselineY);
-                const height = Math.abs(yVal - baselineY);
-
-                return (
-                  <rect
-                    key={i}
-                    x={x}
-                    y={y}
-                    width={CHART.barWidth}
-                    height={height}
-                    fill={series.color}
-                  />
-                );
-              })}
-            </g>
-          );
-        }
-
-        const lineGenerator = d3
-          .line<number>()
-          .x((_, i) => offsetX + xScale(time[i]))
-          .y((d) => offsetY + yScale(d));
-
-        const pathD = lineGenerator(series.data);
+  const renderBars = (series: TimeSeriesItem, idx: number, maskId?: string) => (
+    <g
+      key={maskId ? `${idx}-exceeded` : idx}
+      mask={maskId ? `url(#${maskId})` : undefined}
+    >
+      {series.data.map((d, i) => {
+        const x = offsetX + xScale(time[i]) - CHART.barWidth / 2;
+        const yVal = offsetY + yScale(d);
+        const y = Math.min(yVal, baselineY);
+        const height = Math.abs(yVal - baselineY);
 
         return (
-          <path
-            key={idx}
-            d={pathD ?? undefined}
-            fill="none"
-            stroke={series.color}
-            strokeWidth={CHART.lineWidth}
+          <rect
+            key={i}
+            x={x}
+            y={y}
+            width={CHART.barWidth}
+            height={height}
+            fill={maskId ? CHART.exceeded.color : series.color}
           />
         );
       })}
+    </g>
+  );
+
+  const renderLine = (series: TimeSeriesItem, idx: number, maskId?: string) => {
+    const lineGenerator = d3
+      .line<number>()
+      .x((_, i) => offsetX + xScale(time[i]))
+      .y((d) => offsetY + yScale(d));
+
+    const pathD = lineGenerator(series.data);
+
+    return (
+      <path
+        key={maskId ? `${idx}-exceeded` : idx}
+        d={pathD ?? undefined}
+        fill="none"
+        stroke={maskId ? CHART.exceeded.color : series.color}
+        strokeWidth={CHART.lineWidth}
+        mask={maskId ? `url(#${maskId})` : undefined}
+      />
+    );
+  };
+
+  const areas: React.ReactNode[] = [];
+  const bars: React.ReactNode[] = [];
+  const lines: React.ReactNode[] = [];
+
+  timeSeries.forEach((series, idx) => {
+    const variant = series.variant ?? "line";
+
+    if (variant === "area") {
+      areas.push(renderArea(series, idx));
+      if (exceededMaskId) {
+        areas.push(renderArea(series, idx, exceededMaskId));
+      }
+    } else if (variant === "bars") {
+      bars.push(renderBars(series, idx));
+      if (exceededMaskId) {
+        bars.push(renderBars(series, idx, exceededMaskId));
+      }
+    } else {
+      // "line" or "exceeded" - both render as lines
+      lines.push(renderLine(series, idx));
+      // Don't apply red overlay to exceeded line itself
+      if (exceededMaskId && variant !== "exceeded") {
+        lines.push(renderLine(series, idx, exceededMaskId));
+      }
+    }
+  });
+
+  return (
+    <g className="time-series">
+      {areas}
+      {bars}
+      {lines}
     </g>
   );
 }
@@ -530,12 +612,14 @@ function StackedAreas({
   layout,
   xScale,
   yScale,
+  exceededMaskId,
 }: {
   areaSeries: TimeSeriesItem[];
   time: Date[];
   layout: Layout;
   xScale: XScale;
   yScale: YScale;
+  exceededMaskId?: string;
 }) {
   if (!layout.chart || areaSeries.length === 0) return null;
   const { x: offsetX, y: offsetY } = layout.chart;
@@ -556,26 +640,31 @@ function StackedAreas({
     .offset(d3.stackOffsetDiverging);
   const stackedLayers = stack(stackData);
 
+  const renderLayers = (maskId?: string) =>
+    stackedLayers.map((layer, seriesIdx) => {
+      const areaGenerator = d3
+        .area<d3.SeriesPoint<Record<string, number>>>()
+        .x((_, i) => offsetX + xScale(time[i]))
+        .y0((d) => offsetY + yScale(d[0]))
+        .y1((d) => offsetY + yScale(d[1]));
+
+      const pathD = areaGenerator(layer);
+
+      return (
+        <path
+          key={maskId ? `${seriesIdx}-exceeded` : seriesIdx}
+          d={pathD ?? undefined}
+          fill={maskId ? CHART.exceeded.color : areaSeries[seriesIdx].color}
+          fillOpacity={CHART.areaOpacity}
+          mask={maskId ? `url(#${maskId})` : undefined}
+        />
+      );
+    });
+
   return (
     <g className="stacked-areas">
-      {stackedLayers.map((layer, seriesIdx) => {
-        const areaGenerator = d3
-          .area<d3.SeriesPoint<Record<string, number>>>()
-          .x((_, i) => offsetX + xScale(time[i]))
-          .y0((d) => offsetY + yScale(d[0]))
-          .y1((d) => offsetY + yScale(d[1]));
-
-        const pathD = areaGenerator(layer);
-
-        return (
-          <path
-            key={seriesIdx}
-            d={pathD ?? undefined}
-            fill={areaSeries[seriesIdx].color}
-            fillOpacity={CHART.areaOpacity}
-          />
-        );
-      })}
+      {renderLayers()}
+      {exceededMaskId && renderLayers(exceededMaskId)}
     </g>
   );
 }
@@ -788,19 +877,14 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     props;
   const showAxis = props.showAxis ?? true;
 
+  const exceededSeries =
+    timeSeries.find((s) => s.variant === "exceeded") ?? null;
+
+  const exceededMaskId = exceededSeries ? "exceeded-mask" : "";
+
   const { layout, xScale, yScale, hasNegative, areaSeries, nonAreaSeries } =
     useMemo(() => {
-      if (timeSeries.length === 0 || time.length === 0) {
-        return {
-          layout: null,
-          xScale: null,
-          yScale: null,
-          hasNegative: false,
-          areaSeries: [],
-          nonAreaSeries: [],
-        };
-      }
-
+      // exceeded is treated as a line for rendering, so include it in nonAreaSeries
       const areaSeries = timeSeries.filter((s) => s.variant === "area");
       const nonAreaSeries = timeSeries.filter((s) => s.variant !== "area");
 
@@ -879,7 +963,38 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       style={{ backgroundColor: "#fff" }}
       xmlns="http://www.w3.org/2000/svg"
     >
+      {exceededMaskId && exceededSeries && (
+        <defs>
+          <ExceededMask
+            maskId={exceededMaskId}
+            exceededSeries={exceededSeries}
+            time={time}
+            layout={layout}
+            xScale={xScale}
+            yScale={yScale}
+          />
+        </defs>
+      )}
       {title && <ChartTitle title={title} layout={layout} />}
+      {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
+      {stackedAreas && (
+        <StackedAreas
+          areaSeries={areaSeries}
+          time={time}
+          layout={layout}
+          xScale={xScale}
+          yScale={yScale}
+          exceededMaskId={exceededMaskId}
+        />
+      )}
+      <ChartLines
+        timeSeries={stackedAreas ? nonAreaSeries : timeSeries}
+        time={time}
+        layout={layout}
+        xScale={xScale}
+        yScale={yScale}
+        exceededMaskId={exceededMaskId}
+      />
       {showAxis && (
         <>
           <AxisY layout={layout} yScale={yScale} />
@@ -891,23 +1006,6 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
           />
         </>
       )}
-      {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
-      {stackedAreas && (
-        <StackedAreas
-          areaSeries={areaSeries}
-          time={time}
-          layout={layout}
-          xScale={xScale}
-          yScale={yScale}
-        />
-      )}
-      <ChartLines
-        timeSeries={stackedAreas ? nonAreaSeries : timeSeries}
-        time={time}
-        layout={layout}
-        xScale={xScale}
-        yScale={yScale}
-      />
       <ChartLegend
         items={legendItems}
         legendWidth={legendWidth}
@@ -1004,17 +1102,6 @@ export function CategoricalChart(props: CategoricalChartProps) {
       xmlns="http://www.w3.org/2000/svg"
     >
       {title && <ChartTitle title={title} layout={layout} />}
-      {showAxis && (
-        <>
-          <AxisY layout={layout} yScale={yScale} />
-          <CategoricalAxisX
-            layout={layout}
-            labels={labels}
-            seriesCount={barSeries.length}
-            stacked={stackedBars}
-          />
-        </>
-      )}
       {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
       {stackedBars ? (
         <StackedCategoricalBars
@@ -1036,6 +1123,17 @@ export function CategoricalChart(props: CategoricalChartProps) {
         yScale={yScale}
         stacked={stackedBars}
       />
+      {showAxis && (
+        <>
+          <AxisY layout={layout} yScale={yScale} />
+          <CategoricalAxisX
+            layout={layout}
+            labels={labels}
+            seriesCount={barSeries.length}
+            stacked={stackedBars}
+          />
+        </>
+      )}
       <ChartLegend
         items={legendItems}
         legendWidth={legendWidth}
