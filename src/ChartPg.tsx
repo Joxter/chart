@@ -189,7 +189,19 @@ export function ChartPg() {
             items={testTimeSeries}
             time={testTime}
             legendCols={[150, 150]}
-          />,
+            chartHeight={42}
+          >
+            <rect
+              x={60}
+              y={
+                // TITLE.height + GAP
+                13 + 5
+              }
+              width={42}
+              height={42}
+              fill={"red"}
+            />
+          </CombinedChart>,
         ),
       );
     }, 10);
@@ -202,8 +214,21 @@ export function ChartPg() {
         title="Sample Time Series Chart"
         items={testTimeSeries}
         time={testTime}
-        legendCols={[120, 120]}
-      />
+        legendCols={[150, 150]}
+        chartHeight={42}
+      >
+        <rect
+          x={60}
+          y={
+            // TITLE.height + GAP
+            13 + 5
+          }
+          width={42}
+          height={42}
+          fill={"red"}
+        />
+      </CombinedChart>
+
       <h2>CombinedChart STRING</h2>
       <div
         dangerouslySetInnerHTML={{

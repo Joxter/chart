@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode } from "react";
 import * as d3 from "d3";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -8,12 +8,21 @@ const LEGEND = {
   rowHeight: 13,
   colorBoxWidth: 20,
   colorBoxHeight: 13,
-  rowGap: 13,
+  rowGap: 8,
   colorBoxMargin: 8,
   fontFamily: "sans-serif",
   fontVerticalAlignment: -1,
   color: "#333",
 };
+
+const TITLE = {
+  fontSize: 16,
+  fontFamily: "sans-serif",
+  color: "#333",
+  height: 13, // = baseline of the font
+};
+
+const GAP = 5;
 
 const CHART = {
   width: 500,
@@ -66,11 +75,13 @@ type CombinedChartProps = {
   legendCols?: number[]; // column widths
   items: TimeSeriesItem[];
   time: Date[];
-  children?: (ctx: ChartContext) => {
-    svg: ReactNode;
-    width: number;
-    height: number;
-  };
+  children: ReactNode;
+  chartHeight: number;
+  // children?: (ctx: ChartContext) => {
+  //   svg: ReactNode;
+  //   width: number;
+  //   height: number;
+  // };
 };
 
 type XY = { x: number; y: number };
@@ -85,21 +96,55 @@ type Layout = {
   legend: { x: number; y: number; rows: number } | null;
 };
 
+function calcLayout(props: CombinedChartProps) {
+  let totalH = 0;
+
+  const leftOffset = AXIS.leftWidth;
+  const title = { x: leftOffset, y: 0 };
+  totalH += TITLE.height;
+
+  const chart = { x: leftOffset, y: TITLE.height + GAP };
+  totalH += props.chartHeight + GAP;
+
+  const legend = {
+    x: leftOffset,
+    y: TITLE.height + GAP + props.chartHeight + GAP,
+  };
+
+  const legendRows = Math.ceil(props.items.length / props.legendCols!.length);
+  const legendTotalH =
+    LEGEND.rowGap * (legendRows - 1) + LEGEND.rowHeight * legendRows;
+  totalH += legendTotalH + GAP;
+
+  return {
+    legend,
+    title,
+    chart,
+    totalH: totalH,
+    totalW: 400,
+  };
+}
+
+function Lines() {
+  return;
+}
+
 export function CombinedChart(props: CombinedChartProps) {
-  //
+  const { legend, title, chart, totalH, totalW } = calcLayout(props);
 
   return (
     <svg
-      width={400}
-      height={120}
+      width={totalW}
+      height={totalH}
       style={{ backgroundColor: "#fff" }}
       xmlns="http://www.w3.org/2000/svg"
     >
+      {props.title && <ChartTitle title={props.title} xy={title} />}
+      <g className="children">{props.children!}</g>
       {props.legendCols && (
         <ChartLegend
           items={props.items}
-          xy={{ x: 100, y: 40 }}
-          // xy={{ x: 20, y: 0 }}
+          xy={legend}
           legendWidth={props.legendCols}
         />
       )}
@@ -130,10 +175,10 @@ function ChartLegend({
         const itemY = startY + row * LEGEND.rowHeight + LEGEND.rowGap * row;
         const colY = itemY;
 
-        const textWidth = measureText(
-          item.legend,
-          `${LEGEND.fontSize}px ${LEGEND.fontFamily}`,
-        );
+        // const textWidth = measureText(
+        //   item.legend,
+        //   `${LEGEND.fontSize}px ${LEGEND.fontFamily}`,
+        // );
 
         return (
           <g key={index}>
@@ -153,7 +198,7 @@ function ChartLegend({
             >
               {item.legend}
             </text>
-            <text
+            {/*<text
               x={colX + LEGEND.colorBoxWidth + LEGEND.colorBoxMargin}
               y={itemY + LEGEND.fontSize + LEGEND.fontVerticalAlignment + 10}
               fontSize={LEGEND.fontSize}
@@ -161,7 +206,7 @@ function ChartLegend({
               fill={LEGEND.color}
             >
               {textWidth}
-            </text>
+            </text>*/}
           </g>
         );
       })}
@@ -184,4 +229,18 @@ function measureText(text: string, font: string): TextMetrics {
   const ctx = canvas.getContext("2d")!;
   ctx.font = font; // e.g., "12px sans-serif"
   return ctx.measureText(text).width.toFixed(3);
+}
+
+function ChartTitle({ title, xy }: { title: string; xy: XY }) {
+  return (
+    <text
+      x={xy.x}
+      y={xy.y + TITLE.height}
+      fontSize={TITLE.fontSize}
+      fontFamily={TITLE.fontFamily}
+      fill={TITLE.color}
+    >
+      {title}
+    </text>
+  );
 }
