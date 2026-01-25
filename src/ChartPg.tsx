@@ -5,6 +5,8 @@ import {
   type TimeSeriesItem,
   type CategoricalSeriesItem,
 } from "./Chart";
+import { CombinedChart, renderAsString } from "./CombinedChart.tsx";
+import { useEffect, useMemo, useState } from "react";
 
 // --- Test data ---
 
@@ -168,8 +170,49 @@ const stackedDivergingAreas: TimeSeriesItem[] = [
 // --- Playground ---
 
 export function ChartPg() {
+  const [ss, setSs] = useState("");
+
+  useEffect(() => {
+    setTimeout(() => {
+      setSs(
+        renderAsString(
+          <CombinedChart
+            title="Sample Time Series Chart"
+            items={testTimeSeries}
+            time={testTime}
+            legendCols={[120, 120]}
+          />,
+        ),
+      );
+    }, 10);
+  }, []);
+
   return (
     <div>
+      <h2>CombinedChart</h2>
+      <CombinedChart
+        title="Sample Time Series Chart"
+        items={testTimeSeries}
+        time={testTime}
+        legendCols={[120, 120]}
+      />
+      <h2>CombinedChart STRING</h2>
+      <div
+        dangerouslySetInnerHTML={{
+          __html: ss,
+        }}
+      />
+
+      <h2>Time Series Charts</h2>
+      <TimeSeriesChart
+        title="Sample Time Series Chart"
+        timeSeries={testTimeSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        legendWidth={[120, 120]}
+        showAxis={true}
+      />
+
       <h2>Categorical Charts</h2>
       <CategoricalChart
         title="Sample Categorical"
@@ -219,16 +262,6 @@ export function ChartPg() {
         series={stackedDivergingSeries}
         stackedBars={true}
         legendWidth={[80, 80]}
-      />
-
-      <h2>Time Series Charts</h2>
-      <TimeSeriesChart
-        title="Sample Time Series Chart"
-        timeSeries={testTimeSeries}
-        time={testTime}
-        timeFormat={formatDate}
-        legendWidth={[120, 120]}
-        showAxis={true}
       />
 
       <h3>Legend before chart</h3>

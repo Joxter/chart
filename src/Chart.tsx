@@ -249,6 +249,45 @@
  * ============================================================================
  */
 
+/*
+
+   possible example (might contain mistakes):
+
+     <CombinedChart
+        layoutRows={["title", "legend", "chart"]}
+        title="My combided chart"
+        legendCols={[80, 80]}
+        legendItems={[
+          { label: "Profit", color: "red" },
+          // etc
+        ]}
+      >
+        {(something) => {
+          const { xScale, yScale, layout, ...somethingElse } =
+            someTimeSeriesHelper(someParams);
+
+          return {
+            svg: (
+              <>
+                <AxisY layout={layout} yScale={yScale} />
+                <ChartLines
+                  timeSeries={data}
+                  time={time}
+                  layout={layout}
+                  xScale={xScale}
+                  yScale={yScale}
+                />
+                 ... rest
+              </>
+            ),
+            width: 600,
+            height: 200,
+          };
+        }}
+      </CombinedChart>
+
+*/
+
 import * as d3 from "d3";
 import { useMemo } from "react";
 
