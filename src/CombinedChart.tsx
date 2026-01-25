@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { Children, cloneElement, type ReactNode } from "react";
 import * as d3 from "d3";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -74,9 +74,9 @@ type CombinedChartProps = {
   layoutRows?: ("title" | "legend" | "chart")[];
   legendCols?: number[]; // column widths
   items: TimeSeriesItem[];
+  // crazy: TimeSeriesItem[];
   time: Date[];
   children: ReactNode;
-  chartHeight: number;
   // children?: (ctx: ChartContext) => {
   //   svg: ReactNode;
   //   width: number;
@@ -96,19 +96,26 @@ type Layout = {
   legend: { x: number; y: number; rows: number } | null;
 };
 
-function calcLayout(props: CombinedChartProps) {
+function calcLayout(
+  props: CombinedChartProps,
+  {
+    chartHeight,
+    chartWidth,
+    hasAxis,
+  }: { chartHeight: number; chartWidth: number; hasAxis: boolean },
+) {
   let totalH = 0;
 
-  const leftOffset = AXIS.leftWidth;
+  let leftOffset = hasAxis ? AXIS.leftWidth : 0;
   const title = { x: leftOffset, y: 0 };
   totalH += TITLE.height;
 
   const chart = { x: leftOffset, y: TITLE.height + GAP };
-  totalH += props.chartHeight + GAP;
+  totalH += chartHeight + GAP;
 
   const legend = {
     x: leftOffset,
-    y: TITLE.height + GAP + props.chartHeight + GAP,
+    y: TITLE.height + GAP + chartHeight + GAP,
   };
 
   const legendRows = Math.ceil(props.items.length / props.legendCols!.length);
@@ -121,7 +128,7 @@ function calcLayout(props: CombinedChartProps) {
     title,
     chart,
     totalH: totalH,
-    totalW: 400,
+    totalW: leftOffset + chartWidth,
   };
 }
 
@@ -130,7 +137,29 @@ function Lines() {
 }
 
 export function CombinedChart(props: CombinedChartProps) {
-  const { legend, title, chart, totalH, totalW } = calcLayout(props);
+  let chartHeight = CHART.height;
+  let chartWidth = 400;
+  let hasAxis = false;
+
+  Children.forEach(props.children, (child, i) => {
+    if (child?.type === ChartLines) {
+      if (child.props.height) {
+        chartHeight = child.props.height;
+      }
+    }
+  });
+
+  const { legend, title, chart, totalH, totalW } = calcLayout(props, {
+    chartHeight,
+    chartWidth,
+    hasAxis: hasAxis || true,
+  });
+  console.log(legend);
+
+  const { xScale, yScale } = calcScale(props, {
+    chartHeight,
+    chartWidth,
+  });
 
   return (
     <svg
@@ -140,7 +169,19 @@ export function CombinedChart(props: CombinedChartProps) {
       xmlns="http://www.w3.org/2000/svg"
     >
       {props.title && <ChartTitle title={props.title} xy={title} />}
-      <g className="children">{props.children!}</g>
+      <g className="children">
+        {Children.map(props.children, (child) => {
+          const modifiedChild = cloneElement(child, {
+            ...child.props,
+            time: props.time,
+            xy: chart,
+            xScale,
+            yScale,
+          });
+
+          return modifiedChild;
+        })}
+      </g>
       {props.legendCols && (
         <ChartLegend
           items={props.items}
@@ -150,6 +191,27 @@ export function CombinedChart(props: CombinedChartProps) {
       )}
     </svg>
   );
+}
+
+function calcScale(
+  props: CombinedChartProps,
+  { chartWidth, chartHeight }: { chartWidth: number; chartHeight: number },
+) {
+  const yMin = d3.min(props.items.map((s) => d3.min(s.data) ?? 0)) ?? 0;
+  const yMax = d3.max(props.items.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+
+  const xScale = d3
+    .scaleTime()
+    .domain(d3.extent(props.time) as [Date, Date])
+    .range([0, chartWidth]);
+
+  const yScale: YScale = d3
+    .scaleLinear()
+    .domain([yMax, yMin])
+    .nice()
+    .range([0, chartHeight]);
+
+  return { xScale, yScale };
 }
 
 function ChartLegend({
@@ -242,5 +304,92 @@ function ChartTitle({ title, xy }: { title: string; xy: XY }) {
     >
       {title}
     </text>
+  );
+}
+
+type ChartLinesProps = {
+  timeSeries: TimeSeriesItem[];
+};
+
+type ChartLinesAllProps = ChartLinesProps & {
+  time: Date[];
+  xy: XY;
+  xScale?: XScale;
+  yScale?: YScale;
+};
+
+export function ChartLines(props: ChartLinesProps) {
+  const { timeSeries, time, xy, xScale, yScale } =
+    props as any as ChartLinesAllProps;
+
+  const { x: offsetX, y: offsetY } = xy;
+  const baselineY = 0;
+
+  return (
+    <g className="time-series">
+      {timeSeries.map((series, idx) => {
+        const variant = series.variant ?? "line";
+
+        if (variant === "area") {
+          const areaGenerator = d3
+            .area<number>()
+            .x((_, i) => offsetX + xScale(time[i]))
+            .y0(baselineY)
+            .y1((d) => offsetY + yScale(d));
+
+          const pathD = areaGenerator(series.data);
+
+          return (
+            <path
+              key={idx}
+              d={pathD ?? undefined}
+              fill={series.color}
+              fillOpacity={CHART.areaOpacity}
+            />
+          );
+        }
+
+        if (variant === "bars") {
+          return (
+            <g key={idx}>
+              {series.data.map((d, i) => {
+                const x = offsetX + xScale(time[i]) - CHART.barWidth / 2;
+                const yVal = offsetY + yScale(d);
+                const y = Math.min(yVal, baselineY);
+                const height = Math.abs(yVal - baselineY);
+
+                return (
+                  <rect
+                    key={i}
+                    x={x}
+                    y={y}
+                    width={CHART.barWidth}
+                    height={height}
+                    fill={series.color}
+                  />
+                );
+              })}
+            </g>
+          );
+        }
+
+        const lineGenerator = d3
+          .line<number>()
+          .x((_, i) => offsetX + xScale(time[i]))
+          .y((d) => offsetY + yScale(d));
+
+        const pathD = lineGenerator(series.data);
+
+        return (
+          <path
+            key={idx}
+            d={pathD ?? undefined}
+            fill="none"
+            stroke={series.color}
+            strokeWidth={CHART.lineWidth}
+          />
+        );
+      })}
+    </g>
   );
 }

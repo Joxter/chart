@@ -5,7 +5,7 @@ import {
   type TimeSeriesItem,
   type CategoricalSeriesItem,
 } from "./Chart";
-import { CombinedChart, renderAsString } from "./CombinedChart.tsx";
+import { ChartLines, CombinedChart, renderAsString } from "./CombinedChart.tsx";
 import { useEffect, useMemo, useState } from "react";
 
 // --- Test data ---
@@ -181,6 +181,7 @@ export function ChartPg() {
   const [ss, setSs] = useState("");
 
   useEffect(() => {
+    return;
     setTimeout(() => {
       setSs(
         renderAsString(
@@ -207,6 +208,23 @@ export function ChartPg() {
     }, 10);
   }, []);
 
+  let crazyProps = [
+    //
+    {
+      item: "line",
+      legend: "Something bigger",
+      color: "#377eb8",
+      data: [5, 15, 20, 18, 25, 30, 28],
+    },
+    { item: "x-line", time: testTime, format: "" },
+    { item: "y-line", format: "", domain: [0, 100], width: 300 },
+    {
+      item: "category",
+      categories: ["class A", "class B"],
+    },
+    // { item: "legend", time: testTime, format: "" },
+  ];
+
   return (
     <div>
       <h2>CombinedChart</h2>
@@ -215,18 +233,8 @@ export function ChartPg() {
         items={testTimeSeries}
         time={testTime}
         legendCols={[150, 150]}
-        chartHeight={42}
       >
-        <rect
-          x={60}
-          y={
-            // TITLE.height + GAP
-            13 + 5
-          }
-          width={42}
-          height={42}
-          fill={"red"}
-        />
+        <ChartLines timeSeries={testTimeSeries} />
       </CombinedChart>
 
       <h2>CombinedChart STRING</h2>
