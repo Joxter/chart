@@ -44,21 +44,6 @@ const aroundZeroSeries: TimeSeriesItem[] = [
   { legend: "Delta B", color: "#ff7f0e", data: [-3, 2, -1, 4, -2, 1, -1] },
 ];
 
-const areaTimeSeries: TimeSeriesItem[] = [
-  {
-    legend: "Revenue",
-    color: "#1f77b4",
-    variant: "area",
-    data: [10, 15, 12, 18, 22, 19, 25],
-  },
-  {
-    legend: "Baseline",
-    color: "#ff7f0e",
-    variant: "line",
-    data: [8, 8, 8, 8, 8, 8, 8],
-  },
-];
-
 const mixedAreaSeries: TimeSeriesItem[] = [
   {
     legend: "Net Flow",
@@ -202,7 +187,11 @@ export function ChartPg() {
       <TimeSeriesChart
         title="With domain=[0]"
         timeSeries={[
-          { legend: "Values", color: "#1f77b4", data: [50, 60, 55, 70, 65, 80, 75] },
+          {
+            legend: "Values",
+            color: "#1f77b4",
+            data: [50, 60, 55, 70, 65, 80, 75],
+          },
         ]}
         time={testTime}
         timeFormat={formatDate}
@@ -339,16 +328,6 @@ export function ChartPg() {
       <TimeSeriesChart
         title="Delta Values"
         timeSeries={aroundZeroSeries}
-        time={testTime}
-        timeFormat={formatDate}
-        legendWidth={[100, 100]}
-        showAxis={true}
-      />
-
-      <h3>Area chart with line</h3>
-      <TimeSeriesChart
-        title="Revenue vs Baseline"
-        timeSeries={areaTimeSeries}
         time={testTime}
         timeFormat={formatDate}
         legendWidth={[100, 100]}

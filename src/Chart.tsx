@@ -45,10 +45,11 @@
  *   - CHART.inset = data padding inside chart area
  *
  * CONSTANTS (adjust as needed):
- *   TITLE    - fontSize, height, color
- *   CHART    - width, height, lineWidth, barWidth, zeroLine, exceeded, inset{...}
- *   AXIS     - leftWidth, bottomHeight, fontSize, tickSize, tickCount
- *   LEGEND   - rowHeight, colorBoxSize, fontSize
+ *   TITLE    - fontSize, fontWeight, height, color
+ *   CHART    - width, height, lineWidth, lineCap, lineJoin, barWidth, areaOpacity,
+ *              zeroLine, exceeded, inset{...}
+ *   AXIS     - leftWidth, rightWidth, bottomHeight, fontSize, tickCount, grid{...}
+ *   LEGEND   - rowHeight, lineWidth, lineHeight, fontSize
  *   PADDING  - top, right (outer SVG margins)
  *   GAP      - spacing between layout elements
  *   CATEGORICAL - barWidth, stackedBarWidth, barGap, groupGap
@@ -100,20 +101,23 @@ export type CategoricalChartProps = {
 const defaultLayoutRows = ["title", "legend", "chart"];
 
 const TITLE = {
-  fontSize: 16,
-  fontFamily: "sans-serif",
+  fontSize: 14,
+  fontWeight: 600,
+  fontFamily: "system-ui, -apple-system, sans-serif",
   color: "#333",
-  height: 24,
+  height: 22,
 };
 
 const CHART = {
   width: 500,
   height: 100,
   lineWidth: 2,
+  lineCap: "round" as const,
+  lineJoin: "round" as const,
   barWidth: 4,
-  areaOpacity: 1,
+  areaOpacity: 0.85,
   zeroLine: {
-    color: "#999",
+    color: "#bbb",
     width: 1,
     dashArray: "4,3",
   },
@@ -131,14 +135,18 @@ const CHART = {
 const AXIS = {
   leftWidth: 60,
   rightWidth: 60,
-  bottomHeight: 20,
-  fontSize: 12,
-  fontFamily: "sans-serif",
-  color: "#666",
-  tickSize: 5,
+  bottomHeight: 22,
+  fontSize: 11,
+  fontFamily: "system-ui, -apple-system, sans-serif",
+  color: "#888",
+  tickSize: 4,
   tickCount: 3,
-  tickLabelGap: 4,
+  tickLabelGap: 3,
   lineWidth: 1,
+  grid: {
+    color: "#e5e5e5",
+    width: 1,
+  },
 };
 
 const PADDING = {
@@ -148,13 +156,13 @@ const PADDING = {
 
 const LEGEND = {
   rowHeight: 20,
-  colorBoxW: 15,
-  colorBoxH: 3,
-  colorBoxMargin: 3,
-  fontSize: 12,
+  lineWidth: 16,
+  lineHeight: 2,
+  lineMargin: 6,
+  fontSize: 11,
   fontVerticalAlignment: 1,
-  fontFamily: "sans-serif",
-  color: "#333",
+  fontFamily: "system-ui, -apple-system, sans-serif",
+  color: "#444",
 };
 
 const GAP = 5;
@@ -288,10 +296,37 @@ function ChartTitle({ title, layout }: { title: string; layout: Layout }) {
       y={y + TITLE.fontSize}
       fontSize={TITLE.fontSize}
       fontFamily={TITLE.fontFamily}
+      fontWeight={TITLE.fontWeight}
       fill={TITLE.color}
     >
       {title}
     </text>
+  );
+}
+
+function GridLines({ layout, yScale }: { layout: Layout; yScale: YScale }) {
+  if (!layout.chart) return null;
+
+  const ticks = yScale.ticks(AXIS.tickCount);
+  const { x, y, width } = layout.chart;
+
+  return (
+    <g className="grid-lines">
+      {ticks.map((tick) => {
+        const tickY = y + yScale(tick);
+        return (
+          <line
+            key={tick}
+            x1={x}
+            y1={tickY}
+            x2={x + width}
+            y2={tickY}
+            stroke={AXIS.grid.color}
+            strokeWidth={AXIS.grid.width}
+          />
+        );
+      })}
+    </g>
   );
 }
 
@@ -313,14 +348,6 @@ function AxisY({
 
   return (
     <g className="y-axis">
-      <line
-        x1={chartRight}
-        y1={y}
-        x2={chartRight}
-        y2={y + CHART.height}
-        stroke={AXIS.color}
-        strokeWidth={AXIS.lineWidth}
-      />
       {unit && (
         <text
           x={AXIS.fontSize}
@@ -338,26 +365,18 @@ function AxisY({
       {ticks.map((tick) => {
         const tickY = y + yScale(tick);
         return (
-          <g key={tick}>
-            <line
-              x1={chartRight - AXIS.tickSize}
-              y1={tickY}
-              x2={chartRight}
-              y2={tickY}
-              stroke={AXIS.color}
-            />
-            <text
-              x={chartRight - AXIS.tickSize - AXIS.tickLabelGap}
-              y={tickY}
-              fontSize={AXIS.fontSize}
-              fontFamily={AXIS.fontFamily}
-              fill={AXIS.color}
-              textAnchor="end"
-              dominantBaseline="middle"
-            >
-              {tickFormat(tick)}
-            </text>
-          </g>
+          <text
+            key={tick}
+            x={chartRight - AXIS.tickLabelGap}
+            y={tickY}
+            fontSize={AXIS.fontSize}
+            fontFamily={AXIS.fontFamily}
+            fill={AXIS.color}
+            textAnchor="end"
+            dominantBaseline="middle"
+          >
+            {tickFormat(tick)}
+          </text>
         );
       })}
     </g>
@@ -381,49 +400,35 @@ function AxisYRight({
 
   return (
     <g className="y-axis-right">
-      <line
-        x1={x}
-        y1={y}
-        x2={x}
-        y2={y + CHART.height}
-        stroke={AXIS.color}
-        strokeWidth={AXIS.lineWidth}
-      />
-      <text
-        x={x + AXIS.rightWidth - AXIS.fontSize}
-        y={y + CHART.height / 2}
-        fontSize={AXIS.fontSize}
-        fontFamily={AXIS.fontFamily}
-        fill={AXIS.color}
-        textAnchor="middle"
-        dominantBaseline="middle"
-        transform={`rotate(90, ${x + AXIS.rightWidth - AXIS.fontSize}, ${y + CHART.height / 2})`}
-      >
-        {unit}
-      </text>
+      {unit && (
+        <text
+          x={x + AXIS.rightWidth - AXIS.fontSize}
+          y={y + CHART.height / 2}
+          fontSize={AXIS.fontSize}
+          fontFamily={AXIS.fontFamily}
+          fill={AXIS.color}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          transform={`rotate(90, ${x + AXIS.rightWidth - AXIS.fontSize}, ${y + CHART.height / 2})`}
+        >
+          {unit}
+        </text>
+      )}
       {ticks.map((tick) => {
         const tickY = y + yScale(tick);
         return (
-          <g key={tick}>
-            <line
-              x1={x}
-              y1={tickY}
-              x2={x + AXIS.tickSize}
-              y2={tickY}
-              stroke={AXIS.color}
-            />
-            <text
-              x={x + AXIS.tickSize + AXIS.tickLabelGap}
-              y={tickY}
-              fontSize={AXIS.fontSize}
-              fontFamily={AXIS.fontFamily}
-              fill={AXIS.color}
-              textAnchor="start"
-              dominantBaseline="middle"
-            >
-              {tickFormat(tick)}
-            </text>
-          </g>
+          <text
+            key={tick}
+            x={x + AXIS.tickLabelGap}
+            y={tickY}
+            fontSize={AXIS.fontSize}
+            fontFamily={AXIS.fontFamily}
+            fill={AXIS.color}
+            textAnchor="start"
+            dominantBaseline="middle"
+          >
+            {tickFormat(tick)}
+          </text>
         );
       })}
     </g>
@@ -452,19 +457,21 @@ function ChartLegend({
         const colX =
           startX + legendWidth.slice(0, col).reduce((a, b) => a + b, 0);
         const itemY = startY + row * LEGEND.rowHeight;
-        const boxY = itemY + (LEGEND.rowHeight - LEGEND.colorBoxH) / 2;
+        const lineY = itemY + LEGEND.rowHeight / 2;
 
         return (
           <g key={index}>
-            <rect
-              x={colX}
-              y={boxY}
-              width={LEGEND.colorBoxW}
-              height={LEGEND.colorBoxH}
-              fill={item.color}
+            <line
+              x1={colX}
+              y1={lineY}
+              x2={colX + LEGEND.lineWidth}
+              y2={lineY}
+              stroke={item.color}
+              strokeWidth={LEGEND.lineHeight}
+              strokeLinecap="round"
             />
             <text
-              x={colX + LEGEND.colorBoxW + LEGEND.colorBoxMargin}
+              x={colX + LEGEND.lineWidth + LEGEND.lineMargin}
               y={itemY + LEGEND.rowHeight / 2 + LEGEND.fontVerticalAlignment}
               fontSize={LEGEND.fontSize}
               fontFamily={LEGEND.fontFamily}
@@ -561,12 +568,13 @@ function AxisX({
   return (
     <g className="x-axis">
       <line
+        opacity={0}
         x1={x}
         y1={y}
         x2={x + layout.chart.width}
         y2={y}
-        stroke={AXIS.color}
-        strokeWidth={AXIS.lineWidth}
+        stroke={AXIS.grid.color}
+        strokeWidth={AXIS.grid.width}
       />
       {ticks.map((tick) => {
         const tickX = x + xScale(tick);
@@ -578,10 +586,11 @@ function AxisX({
               x2={tickX}
               y2={y + AXIS.tickSize}
               stroke={AXIS.color}
+              strokeWidth={AXIS.lineWidth}
             />
             <text
               x={tickX}
-              y={y + AXIS.tickSize + AXIS.fontSize}
+              y={y + AXIS.tickSize + AXIS.tickLabelGap + AXIS.fontSize}
               fontSize={AXIS.fontSize}
               fontFamily={AXIS.fontFamily}
               fill={AXIS.color}
@@ -675,6 +684,8 @@ function ChartLines({
         fill="none"
         stroke={maskId ? CHART.exceeded.color : series.color}
         strokeWidth={CHART.lineWidth}
+        strokeLinecap={CHART.lineCap}
+        strokeLinejoin={CHART.lineJoin}
         mask={maskId ? `url(#${maskId})` : undefined}
       />
     );
@@ -798,37 +809,30 @@ function CategoricalAxisX({
   return (
     <g className="x-axis">
       <line
+        opacity={0}
         x1={x}
         y1={y}
         x2={x + layout.chart.width}
         y2={y}
-        stroke={AXIS.color}
-        strokeWidth={AXIS.lineWidth}
+        stroke={AXIS.grid.color}
+        strokeWidth={AXIS.grid.width}
       />
       {labels.map((label, i) => {
         const groupX =
           CHART.inset.left + i * (groupWidth + CATEGORICAL.groupGap);
         const tickX = x + groupX + groupWidth / 2;
         return (
-          <g key={i}>
-            <line
-              x1={tickX}
-              y1={y}
-              x2={tickX}
-              y2={y + AXIS.tickSize}
-              stroke={AXIS.color}
-            />
-            <text
-              x={tickX}
-              y={y + AXIS.tickSize + AXIS.fontSize}
-              fontSize={AXIS.fontSize}
-              fontFamily={AXIS.fontFamily}
-              fill={AXIS.color}
-              textAnchor="middle"
-            >
-              {label}
-            </text>
-          </g>
+          <text
+            key={i}
+            x={tickX}
+            y={y + AXIS.tickLabelGap + AXIS.fontSize}
+            fontSize={AXIS.fontSize}
+            fontFamily={AXIS.fontFamily}
+            fill={AXIS.color}
+            textAnchor="middle"
+          >
+            {label}
+          </text>
         );
       })}
     </g>
@@ -975,6 +979,8 @@ function CategoricalLines({
             fill="none"
             stroke={s.color}
             strokeWidth={CHART.lineWidth}
+            strokeLinecap={CHART.lineCap}
+            strokeLinejoin={CHART.lineJoin}
           />
         );
       })}
@@ -1097,7 +1103,15 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       areaSeries,
       nonAreaSeries,
     };
-  }, [props, timeSeries, primarySeries, secondarySeries, time, stackedAreas, domain]);
+  }, [
+    props,
+    timeSeries,
+    primarySeries,
+    secondarySeries,
+    time,
+    stackedAreas,
+    domain,
+  ]);
 
   if (!layout || !xScale || !yScale) {
     return <svg />;
@@ -1128,7 +1142,8 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
         </defs>
       )}
       {title && <ChartTitle title={title} layout={layout} />}
-      {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
+      {showAxis && <GridLines layout={layout} yScale={yScale} />}
+      {/*{hasNegative && <ZeroLine layout={layout} yScale={yScale} />}*/}
       {stackedAreas && (
         <StackedAreas
           areaSeries={areaSeries}
@@ -1184,7 +1199,8 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
 }
 
 export function CategoricalChart(props: CategoricalChartProps) {
-  const { labels, series, title, legendWidth, stackedBars, unit, domain } = props;
+  const { labels, series, title, legendWidth, stackedBars, unit, domain } =
+    props;
   const showAxis = props.showAxis ?? true;
 
   const { layout, yScale, hasNegative, barSeries, lineSeries } = useMemo(() => {
@@ -1276,7 +1292,8 @@ export function CategoricalChart(props: CategoricalChartProps) {
       xmlns="http://www.w3.org/2000/svg"
     >
       {title && <ChartTitle title={title} layout={layout} />}
-      {hasNegative && <ZeroLine layout={layout} yScale={yScale} />}
+      {showAxis && <GridLines layout={layout} yScale={yScale} />}
+      {/*{hasNegative && <ZeroLine layout={layout} yScale={yScale} />}*/}
       {stackedBars ? (
         <StackedCategoricalBars
           barSeries={barSeries}
