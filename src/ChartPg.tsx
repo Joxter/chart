@@ -5,19 +5,19 @@ import {
   type TimeSeriesItem,
   type CategoricalSeriesItem,
 } from "./Chart";
-import { ChartLines, CombinedChart, renderAsString } from "./CombinedChart.tsx";
-import { useEffect, useMemo, useState } from "react";
+// import { ChartLines, CombinedChart, renderAsString } from "./CombinedChart.tsx";
+// import { useEffect, useMemo, useState } from "react";
 
 // --- Test data ---
 
 const testTime = [
-  new Date("2024-01-01"),
-  new Date("2024-01-02"),
-  new Date("2024-01-03"),
-  new Date("2024-01-04"),
-  new Date("2024-01-05"),
-  new Date("2024-01-06"),
-  new Date("2024-01-07"),
+  new Date("2024-01-01T00:00:00"),
+  new Date("2024-01-02T00:00:00"),
+  new Date("2024-01-03T00:00:00"),
+  new Date("2024-01-04T00:00:00"),
+  new Date("2024-01-05T00:00:00"),
+  new Date("2024-01-06T00:00:00"),
+  new Date("2024-01-07T00:00:00"),
 ];
 
 const testTimeSeries: TimeSeriesItem[] = [
@@ -178,36 +178,6 @@ const stackedDivergingAreas: TimeSeriesItem[] = [
 // --- Playground ---
 
 export function ChartPg() {
-  const [ss, setSs] = useState("");
-
-  useEffect(() => {
-    return;
-    setTimeout(() => {
-      setSs(
-        renderAsString(
-          <CombinedChart
-            title="Sample Time Series Chart"
-            items={testTimeSeries}
-            time={testTime}
-            legendCols={[150, 150]}
-            chartHeight={42}
-          >
-            <rect
-              x={60}
-              y={
-                // TITLE.height + GAP
-                13 + 5
-              }
-              width={42}
-              height={42}
-              fill={"red"}
-            />
-          </CombinedChart>,
-        ),
-      );
-    }, 10);
-  }, []);
-
   let crazyProps = [
     //
     {
@@ -227,23 +197,6 @@ export function ChartPg() {
 
   return (
     <div>
-      <h2>CombinedChart</h2>
-      <CombinedChart
-        title="Sample Time Series Chart"
-        items={testTimeSeries}
-        time={testTime}
-        legendCols={[150, 150]}
-      >
-        <ChartLines timeSeries={testTimeSeries} />
-      </CombinedChart>
-
-      <h2>CombinedChart STRING</h2>
-      <div
-        dangerouslySetInnerHTML={{
-          __html: ss,
-        }}
-      />
-
       <h2>Time Series Charts</h2>
       <TimeSeriesChart
         title="Sample Time Series Chart"

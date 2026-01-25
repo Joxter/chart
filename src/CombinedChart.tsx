@@ -22,7 +22,7 @@ const TITLE = {
   height: 13, // = baseline of the font
 };
 
-const GAP = 5;
+const GAP = 10;
 
 const CHART = {
   width: 500,
@@ -36,10 +36,10 @@ const CHART = {
     dashArray: "4,3",
   },
   inset: {
-    top: 5,
+    top: 10,
     bottom: 5,
-    left: 5,
-    right: 12,
+    left: 1,
+    right: 1,
   },
 };
 
@@ -107,33 +107,33 @@ function calcLayout(
   let totalH = 0;
 
   let leftOffset = hasAxis ? AXIS.leftWidth : 0;
-  const title = { x: leftOffset, y: 0 };
-  totalH += TITLE.height;
+  const title = { x: leftOffset, y: totalH };
 
-  const chart = { x: leftOffset, y: TITLE.height + GAP };
-  totalH += chartHeight + GAP;
+  totalH += TITLE.height + GAP;
 
-  const legend = {
-    x: leftOffset,
-    y: TITLE.height + GAP + chartHeight + GAP,
-  };
-
+  const legend = { x: leftOffset, y: totalH };
   const legendRows = Math.ceil(props.items.length / props.legendCols!.length);
   const legendTotalH =
     LEGEND.rowGap * (legendRows - 1) + LEGEND.rowHeight * legendRows;
+
   totalH += legendTotalH + GAP;
+
+  const chart = { x: leftOffset, y: totalH };
+
+  totalH += chartHeight;
+
+  totalH += AXIS.bottomHeight;
 
   return {
     legend,
     title,
     chart,
+    yAxis: { x: 0, y: chart.y },
+    xAxis: { x: chart.x, y: chart.y + chartHeight },
     totalH: totalH,
+    chartWidth,
     totalW: leftOffset + chartWidth,
   };
-}
-
-function Lines() {
-  return;
 }
 
 export function CombinedChart(props: CombinedChartProps) {
@@ -149,17 +149,21 @@ export function CombinedChart(props: CombinedChartProps) {
     }
   });
 
-  const { legend, title, chart, totalH, totalW } = calcLayout(props, {
-    chartHeight,
-    chartWidth,
-    hasAxis: hasAxis || true,
-  });
-  console.log(legend);
+  const { legend, title, chart, totalH, totalW, ...layouts } = calcLayout(
+    props,
+    {
+      chartHeight,
+      chartWidth,
+      hasAxis: hasAxis || true,
+    },
+  );
 
   const { xScale, yScale } = calcScale(props, {
     chartHeight,
     chartWidth,
   });
+
+  const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 
   return (
     <svg
@@ -169,6 +173,14 @@ export function CombinedChart(props: CombinedChartProps) {
       xmlns="http://www.w3.org/2000/svg"
     >
       {props.title && <ChartTitle title={props.title} xy={title} />}
+      <AxisY xy={layouts.yAxis} yScale={yScale} />
+      <AxisX
+        xy={layouts.xAxis}
+        chartWidth={layouts.chartWidth}
+        xScale={xScale}
+        timeFormat={formatDate}
+      />
+
       <g className="children">
         {Children.map(props.children, (child) => {
           const modifiedChild = cloneElement(child, {
@@ -193,6 +205,105 @@ export function CombinedChart(props: CombinedChartProps) {
   );
 }
 
+function AxisX({
+  xy,
+  xScale,
+  timeFormat,
+  chartWidth,
+}: {
+  xy: XY;
+  xScale: XScale;
+  chartWidth: number;
+  timeFormat: (date: Date) => string;
+}) {
+  const ticks = xScale.ticks(AXIS.tickCount);
+  console.log(ticks);
+  console.log(xScale.domain());
+  const { x, y } = xy;
+
+  return (
+    <g className="x-axis">
+      <line
+        x1={x}
+        y1={y}
+        x2={x + chartWidth}
+        y2={y}
+        stroke={AXIS.color}
+        strokeWidth={AXIS.lineWidth}
+      />
+      {ticks.map((tick) => {
+        const tickX = x + xScale(tick);
+        return (
+          <g key={tick.getTime()}>
+            <line
+              x1={tickX}
+              y1={y}
+              x2={tickX}
+              y2={y + AXIS.tickSize}
+              stroke={AXIS.color}
+            />
+            <text
+              x={tickX}
+              y={y + AXIS.tickSize + AXIS.fontSize}
+              fontSize={AXIS.fontSize}
+              fontFamily={AXIS.fontFamily}
+              fill={AXIS.color}
+              textAnchor="middle"
+            >
+              {timeFormat(tick)}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+function AxisY({ xy, yScale }: { xy: XY; yScale: YScale }) {
+  const ticks = yScale.ticks(AXIS.tickCount);
+  const tickFormat = yScale.tickFormat(AXIS.tickCount, "s");
+  const { x, y } = xy;
+  const chartRight = x + AXIS.leftWidth;
+
+  return (
+    <g className="y-axis">
+      <line
+        x1={chartRight}
+        y1={y}
+        x2={chartRight}
+        y2={y + CHART.height}
+        stroke={AXIS.color}
+        strokeWidth={AXIS.lineWidth}
+      />
+      {ticks.map((tick) => {
+        const tickY = y + yScale(tick);
+        return (
+          <g key={tick}>
+            <line
+              x1={chartRight - AXIS.tickSize}
+              y1={tickY}
+              x2={chartRight}
+              y2={tickY}
+              stroke={AXIS.color}
+            />
+            <text
+              x={chartRight - AXIS.tickSize - AXIS.tickLabelGap}
+              y={tickY}
+              fontSize={AXIS.fontSize}
+              fontFamily={AXIS.fontFamily}
+              fill={AXIS.color}
+              textAnchor="end"
+              dominantBaseline="middle"
+            >
+              {tickFormat(tick)}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 function calcScale(
   props: CombinedChartProps,
   { chartWidth, chartHeight }: { chartWidth: number; chartHeight: number },
@@ -203,13 +314,13 @@ function calcScale(
   const xScale = d3
     .scaleTime()
     .domain(d3.extent(props.time) as [Date, Date])
-    .range([0, chartWidth]);
+    .range([0 + CHART.inset.left, chartWidth - CHART.inset.right]);
 
   const yScale: YScale = d3
     .scaleLinear()
     .domain([yMax, yMin])
     .nice()
-    .range([0, chartHeight]);
+    .range([0 + CHART.inset.top, chartHeight - CHART.inset.bottom]);
 
   return { xScale, yScale };
 }
