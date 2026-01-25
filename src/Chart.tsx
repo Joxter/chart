@@ -334,30 +334,41 @@ function AxisY({
   layout,
   yScale,
   unit,
+  side = "left",
 }: {
   layout: Layout;
   yScale: YScale;
   unit?: string;
+  side?: "left" | "right";
 }) {
-  if (!layout.axisY) return null;
+  const axisLayout = side === "left" ? layout.axisY : layout.axisYRight;
+  if (!axisLayout) return null;
 
   const ticks = yScale.ticks(AXIS.tickCount);
   const tickFormat = yScale.tickFormat(AXIS.tickCount, "s");
-  const { x, y } = layout.axisY;
-  const chartRight = x + AXIS.leftWidth;
+  const { x, y } = axisLayout;
+
+  const isLeft = side === "left";
+  const axisWidth = isLeft ? AXIS.leftWidth : AXIS.rightWidth;
+  const labelX = isLeft ? AXIS.fontSize : x + axisWidth - AXIS.fontSize;
+  const tickLabelX = isLeft
+    ? x + axisWidth - AXIS.tickLabelGap
+    : x + AXIS.tickLabelGap;
+  const textAnchor = isLeft ? "end" : "start";
+  const rotation = isLeft ? -90 : 90;
 
   return (
-    <g className="y-axis">
+    <g className={`y-axis-${side}`}>
       {unit && (
         <text
-          x={AXIS.fontSize}
+          x={labelX}
           y={y + CHART.height / 2}
           fontSize={AXIS.fontSize}
           fontFamily={AXIS.fontFamily}
           fill={AXIS.color}
           textAnchor="middle"
           dominantBaseline="middle"
-          transform={`rotate(-90, ${AXIS.fontSize}, ${y + CHART.height / 2})`}
+          transform={`rotate(${rotation}, ${labelX}, ${y + CHART.height / 2})`}
         >
           {unit}
         </text>
@@ -367,64 +378,12 @@ function AxisY({
         return (
           <text
             key={tick}
-            x={chartRight - AXIS.tickLabelGap}
+            x={tickLabelX}
             y={tickY}
             fontSize={AXIS.fontSize}
             fontFamily={AXIS.fontFamily}
             fill={AXIS.color}
-            textAnchor="end"
-            dominantBaseline="middle"
-          >
-            {tickFormat(tick)}
-          </text>
-        );
-      })}
-    </g>
-  );
-}
-
-function AxisYRight({
-  layout,
-  yScale,
-  unit,
-}: {
-  layout: Layout;
-  yScale: YScale;
-  unit?: string;
-}) {
-  if (!layout.axisYRight) return null;
-
-  const ticks = yScale.ticks(AXIS.tickCount);
-  const tickFormat = yScale.tickFormat(AXIS.tickCount, "s");
-  const { x, y } = layout.axisYRight;
-
-  return (
-    <g className="y-axis-right">
-      {unit && (
-        <text
-          x={x + AXIS.rightWidth - AXIS.fontSize}
-          y={y + CHART.height / 2}
-          fontSize={AXIS.fontSize}
-          fontFamily={AXIS.fontFamily}
-          fill={AXIS.color}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          transform={`rotate(90, ${x + AXIS.rightWidth - AXIS.fontSize}, ${y + CHART.height / 2})`}
-        >
-          {unit}
-        </text>
-      )}
-      {ticks.map((tick) => {
-        const tickY = y + yScale(tick);
-        return (
-          <text
-            key={tick}
-            x={x + AXIS.tickLabelGap}
-            y={tickY}
-            fontSize={AXIS.fontSize}
-            fontFamily={AXIS.fontFamily}
-            fill={AXIS.color}
-            textAnchor="start"
+            textAnchor={textAnchor}
             dominantBaseline="middle"
           >
             {tickFormat(tick)}
@@ -1043,8 +1002,11 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       yMax = Math.max(0, d3.max(positiveSums) ?? 0, d3.max(nonAreaValues) ?? 0);
       yMin = Math.min(0, d3.min(negativeSums) ?? 0, d3.min(nonAreaValues) ?? 0);
     } else {
-      yMin = d3.min(primarySeries.map((s) => d3.min(s.data) ?? 0)) ?? 0;
-      yMax = d3.max(primarySeries.map((s) => d3.max(s.data) ?? 0)) ?? 0;
+      const [dataMin, dataMax] = d3.extent(
+        primarySeries.flatMap((s) => s.data),
+      );
+      yMin = dataMin ?? 0;
+      yMax = dataMax ?? 0;
     }
 
     // Merge with domain prop if provided
@@ -1082,14 +1044,13 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     // Calculate yScaleRight for secondary series (right axis)
     let yScaleRight: YScale | null = null;
     if (secondarySeries) {
-      const secMin = d3.min(secondarySeries.data) ?? 0;
-      const secMax = d3.max(secondarySeries.data) ?? 0;
-      const secHasNegative = secMin < 0;
+      const [secMin, secMax] = d3.extent(secondarySeries.data);
+      const secHasNegative = (secMin ?? 0) < 0;
       const secBottomInset = secHasNegative ? CHART.inset.bottom : 0;
 
       yScaleRight = d3
         .scaleLinear()
-        .domain([secMax, secMin])
+        .domain([secMax ?? 0, secMin ?? 0])
         .nice()
         .range([CHART.inset.top, CHART.height - secBottomInset]);
     }
@@ -1175,10 +1136,11 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
         <>
           <AxisY layout={layout} yScale={yScale} unit={unit} />
           {secondarySeries && yScaleRight && (
-            <AxisYRight
+            <AxisY
               layout={layout}
               yScale={yScaleRight}
               unit={secondarySeries.secondUnit}
+              side="right"
             />
           )}
           <AxisX
@@ -1246,8 +1208,9 @@ export function CategoricalChart(props: CategoricalChartProps) {
       yMin = Math.min(0, d3.min(negativeSums) ?? 0, d3.min(lineValues) ?? 0);
     } else {
       const allValues = series.flatMap((s) => s.values);
-      yMin = d3.min(allValues) ?? 0;
-      yMax = d3.max(allValues) ?? 0;
+      const [dataMin, dataMax] = d3.extent(allValues) as [number, number];
+      yMin = dataMin ?? 0;
+      yMax = dataMax ?? 0;
     }
 
     // Merge with domain prop if provided
