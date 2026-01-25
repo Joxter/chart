@@ -130,6 +130,11 @@ function ChartLegend({
         const itemY = startY + row * LEGEND.rowHeight + LEGEND.rowGap * row;
         const colY = itemY;
 
+        const textWidth = measureText(
+          item.legend,
+          `${LEGEND.fontSize}px ${LEGEND.fontFamily}`,
+        );
+
         return (
           <g key={index}>
             <rect
@@ -145,9 +150,17 @@ function ChartLegend({
               fontSize={LEGEND.fontSize}
               fontFamily={LEGEND.fontFamily}
               fill={LEGEND.color}
-              // dominantBaseline="middle"
             >
               {item.legend}
+            </text>
+            <text
+              x={colX + LEGEND.colorBoxWidth + LEGEND.colorBoxMargin}
+              y={itemY + LEGEND.fontSize + LEGEND.fontVerticalAlignment + 10}
+              fontSize={LEGEND.fontSize}
+              fontFamily={LEGEND.fontFamily}
+              fill={LEGEND.color}
+            >
+              {textWidth}
             </text>
           </g>
         );
@@ -164,4 +177,11 @@ export function renderAsString(node: ReactNode) {
   });
   // console.log(div);
   return div.innerHTML;
+}
+
+function measureText(text: string, font: string): TextMetrics {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d")!;
+  ctx.font = font; // e.g., "12px sans-serif"
+  return ctx.measureText(text).width.toFixed(3);
 }

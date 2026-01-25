@@ -21,9 +21,17 @@ const testTime = [
 ];
 
 const testTimeSeries: TimeSeriesItem[] = [
-  { legend: "Series A", color: "#e41a1c", data: [10, 25, 15, 30, 22, 28, 35] },
-  { legend: "Series B", color: "#377eb8", data: [5, 15, 20, 18, 25, 30, 28] },
-  { legend: "Series C", color: "#4daf4a", data: [20, 18, 22, 15, 20, 25, 30] },
+  { legend: "Something", color: "#e41a1c", data: [10, 25, 15, 30, 22, 28, 35] },
+  {
+    legend: "Something bigger",
+    color: "#377eb8",
+    data: [5, 15, 20, 18, 25, 30, 28],
+  },
+  {
+    legend: "Something even more bigger",
+    color: "#4daf4a",
+    data: [20, 18, 22, 15, 20, 25, 30],
+  },
 ];
 
 const mixedTimeSeries: TimeSeriesItem[] = [
@@ -180,7 +188,7 @@ export function ChartPg() {
             title="Sample Time Series Chart"
             items={testTimeSeries}
             time={testTime}
-            legendCols={[120, 120]}
+            legendCols={[150, 150]}
           />,
         ),
       );
