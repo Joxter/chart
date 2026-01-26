@@ -1,4 +1,6 @@
-export type AggregationPeriod = 'none' | 'day' | 'week' | 'month';
+import * as d3 from "d3";
+
+export type AggregationPeriod = "none" | "day" | "week" | "month";
 
 export interface PeriodData {
   label: string;
@@ -12,33 +14,43 @@ export function splitByPeriod(
   period: AggregationPeriod,
 ): PeriodData[] {
   const startTime = performance.now();
-  const selectedKeys = Object.keys(data).filter(key =>
-    key !== 'date' && !key.startsWith('_')
-  )
+  const selectedKeys = Object.keys(data).filter(
+    (key) => key !== "date" && !key.startsWith("_"),
+  );
 
-  if (period === 'none') {
-    return [{
-      label: 'All Data',
-      data
-    }];
+  if (period === "none") {
+    return [
+      {
+        label: "All Data",
+        data,
+      },
+    ];
   }
 
   const dates = data.date;
-  const groups: Array<{ label: string; startIndex: number; endIndex: number }> = [];
+  const groups: Array<{ label: string; startIndex: number; endIndex: number }> =
+    [];
 
   let currentKey: string | null = null;
-  let currentGroup: { label: string; startIndex: number; endIndex: number } | null = null;
+  let currentGroup: {
+    label: string;
+    startIndex: number;
+    endIndex: number;
+  } | null = null;
 
   // Get precomputed key array based on period
   let keyArray: string[];
   switch (period) {
-    case 'day':
+    case "day":
+      // @ts-ignore
       keyArray = data._day_key;
       break;
-    case 'week':
+    case "week":
+      // @ts-ignore
       keyArray = data._week_key;
       break;
-    case 'month':
+    case "month":
+      // @ts-ignore
       keyArray = data._month_key;
       break;
     default:
@@ -50,18 +62,26 @@ export function splitByPeriod(
     const date = new Date(timestamp);
 
     switch (period) {
-      case 'day':
-        return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-      case 'week':
+      case "day":
+        return date.toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+      case "week":
         const weekStart = new Date(date);
         weekStart.setDate(date.getDate() - date.getDay());
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 6);
-        return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-      case 'month':
-        return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        return `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+      case "month":
+        return date.toLocaleDateString("en-US", {
+          month: "long",
+          year: "numeric",
+        });
       default:
-        return 'All Data';
+        return "All Data";
     }
   };
 
@@ -72,7 +92,11 @@ export function splitByPeriod(
     if (key !== currentKey) {
       // New period detected - create new group with label
       currentKey = key;
-      currentGroup = { label: getLabel(dates[index]), startIndex: index, endIndex: index };
+      currentGroup = {
+        label: getLabel(dates[index]),
+        startIndex: index,
+        endIndex: index,
+      };
       groups.push(currentGroup);
     } else {
       // Same period - just update end index (no calculation needed)
@@ -85,37 +109,44 @@ export function splitByPeriod(
 
   groups.forEach((group) => {
     const periodData: Record<string, number[]> = {
-      date: dates.slice(group.startIndex, group.endIndex + 1)
+      date: dates.slice(group.startIndex, group.endIndex + 1),
     };
 
     // Use array slicing instead of forEach - much faster
-    selectedKeys.forEach(key => {
+    selectedKeys.forEach((key) => {
       periodData[key] = data[key].slice(group.startIndex, group.endIndex + 1);
     });
 
     result.push({
       label: group.label,
-      data: periodData
+      data: periodData,
     });
   });
-  console.log(`✓ splitByPeriod (${period}): ${(performance.now() - startTime).toFixed(2)}ms total`);
+  console.log(
+    `✓ splitByPeriod (${period}): ${(performance.now() - startTime).toFixed(2)}ms total`,
+  );
 
   return result;
 }
 
 // Precompute period keys for efficient grouping
-export function preprocessData(data: Record<string, number[]>): Record<string, number[]> {
+export function preprocessData(
+  data: Record<string, number[]>,
+): Record<string, number[]> {
   const preprocessStart = performance.now();
   const dates = data.date;
   const length = dates.length;
 
-  const keysToRemove = ['curtailment_after_battery', 'redelivery_after_battery'];
+  const keysToRemove = [
+    "curtailment_after_battery",
+    "redelivery_after_battery",
+  ];
 
-  Object.keys(data).forEach((key)=>{
-    if (keysToRemove.find(it => key.startsWith(it))) {
+  Object.keys(data).forEach((key) => {
+    if (keysToRemove.find((it) => key.startsWith(it))) {
       delete data[key];
     }
-  })
+  });
 
   // Pre-allocate arrays for better performance
   const dayKeys: string[] = new Array(length);
@@ -129,23 +160,80 @@ export function preprocessData(data: Record<string, number[]>): Record<string, n
     const day = date.getDate();
 
     // Day key: "2024-01-01"
-    dayKeys[i] = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    dayKeys[i] =
+      `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
     // Week key: Use the date of the week start (Sunday) as unique identifier
     // This ensures each week has a unique key across years
     const weekStart = new Date(date);
     weekStart.setDate(day - date.getDay());
-    weekKeys[i] = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+    weekKeys[i] =
+      `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, "0")}-${String(weekStart.getDate()).padStart(2, "0")}`;
 
     // Month key: "2024-01"
-    monthKeys[i] = `${year}-${String(month).padStart(2, '0')}`;
+    monthKeys[i] = `${year}-${String(month).padStart(2, "0")}`;
   }
 
+  // @ts-ignore
   data._day_key = dayKeys;
+  // @ts-ignore
   data._week_key = weekKeys;
+  // @ts-ignore
   data._month_key = monthKeys;
 
-  console.log(`✓ Precompute period keys: ${(performance.now() - preprocessStart).toFixed(2)}ms`);
+  console.log(
+    `✓ Precompute period keys: ${(performance.now() - preprocessStart).toFixed(2)}ms`,
+  );
 
   return data;
+}
+
+export function sumPositiveNegative(arr: number[]): [number, number] {
+  let down = 0;
+  let up = 0;
+
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] > 0) {
+      up += arr[i];
+    } else if (arr[i] < 0) {
+      down += arr[i];
+    }
+  }
+
+  return [down, up];
+}
+
+export function domainForStackedBars(
+  timeSeries: Array<number[]>,
+): [number, number] {
+  let min = 0;
+  let max = 0;
+
+  if (timeSeries[0]) {
+    for (let i = 0; i < timeSeries[0].length; i++) {
+      let positive = 0;
+      let negative = 0;
+
+      for (let ts of timeSeries) {
+        if (ts[i] > 0) {
+          positive += ts[i];
+        } else if (ts[i] < 0) {
+          negative += ts[i];
+        }
+      }
+
+      if (negative < min) min = negative;
+      if (positive > max) max = positive;
+    }
+  }
+
+  return [min, max];
+}
+
+export function minMax(arr: number[]): [number, number] {
+  return d3.extent(arr) as [number, number];
+}
+
+export function minMaxArr(arr: Array<number[]>): [number, number] {
+  return minMax(arr.flatMap((s) => minMax(s)));
 }

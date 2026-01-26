@@ -57,6 +57,7 @@
 
 import * as d3 from "d3";
 import { useMemo } from "react";
+import { domainForStackedBars, minMax, minMaxArr } from "./utils.ts";
 
 export type TimeSeriesItem = {
   legend: string;
@@ -76,7 +77,7 @@ export type TimeSeriesChartProps = {
   stackedAreas?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
   unit?: string;
-  domain?: [number?, number?];
+  domain?: number[];
 };
 
 export type CategoricalSeriesItem = {
@@ -95,7 +96,7 @@ export type CategoricalChartProps = {
   stackedBars?: boolean;
   layoutRows?: ("title" | "legend" | "chart")[];
   unit?: string;
-  domain?: [number?, number?];
+  domain?: number[];
 };
 
 const defaultLayoutRows = ["title", "legend", "chart"];
@@ -399,7 +400,7 @@ function ChartLegend({
   legendWidth,
   layout,
 }: {
-  items: LegendItem[];
+  items: { label?: string; legend?: string; color: string }[];
   legendWidth?: number[];
   layout: Layout;
 }) {
@@ -437,7 +438,7 @@ function ChartLegend({
               fill={LEGEND.color}
               dominantBaseline="middle"
             >
-              {item.label}
+              {item.label || item.legend}
             </text>
           </g>
         );
@@ -962,126 +963,59 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
 
   const exceededSeries =
     timeSeries.find((s) => s.variant === "exceeded") ?? null;
-
   const exceededMaskId = exceededSeries ? "exceeded-mask" : "";
 
   const secondarySeries = timeSeries.find((s) => s.secondUnit) ?? null;
   const primarySeries = timeSeries.filter((s) => !s.secondUnit);
 
-  const {
-    layout,
-    xScale,
-    yScale,
-    yScaleRight,
-    hasNegative,
-    areaSeries,
-    nonAreaSeries,
-  } = useMemo(() => {
-    // exceeded is treated as a line for rendering, so include it in nonAreaSeries
-    const areaSeries = primarySeries.filter((s) => s.variant === "area");
-    const nonAreaSeries = primarySeries.filter((s) => s.variant !== "area");
+  // exceeded is treated as a line for rendering, so include it in nonAreaSeries
+  const areaSeries = primarySeries.filter((s) => s.variant === "area");
+  const nonAreaSeries = primarySeries.filter((s) => s.variant !== "area");
 
-    const layout = calculateLayout({
-      ...props,
-      seriesCount: timeSeries.length,
-      chartWidth: CHART.width,
-      hasRightAxis: !!secondarySeries,
-    });
+  const layout = calculateLayout({
+    ...props,
+    seriesCount: timeSeries.length,
+    chartWidth: CHART.width,
+    hasRightAxis: !!secondarySeries,
+  });
 
-    // Calculate yScale for primary series (left axis)
-    let yMin: number, yMax: number;
-    if (stackedAreas && areaSeries.length > 0) {
-      // For diverging stacks: positives stack up, negatives stack down
-      const positiveSums = time.map((_, timeIdx) =>
-        areaSeries.reduce((sum, s) => sum + Math.max(0, s.data[timeIdx]), 0),
-      );
-      const negativeSums = time.map((_, timeIdx) =>
-        areaSeries.reduce((sum, s) => sum + Math.min(0, s.data[timeIdx]), 0),
-      );
-      const nonAreaValues = nonAreaSeries.flatMap((s) => s.data);
-      yMax = Math.max(0, d3.max(positiveSums) ?? 0, d3.max(nonAreaValues) ?? 0);
-      yMin = Math.min(0, d3.min(negativeSums) ?? 0, d3.min(nonAreaValues) ?? 0);
-    } else {
-      const [dataMin, dataMax] = d3.extent(
-        primarySeries.flatMap((s) => s.data),
-      );
-      yMin = dataMin ?? 0;
-      yMax = dataMax ?? 0;
-    }
+  let [yMin, yMax] =
+    stackedAreas && areaSeries.length > 0
+      ? minMaxArr([
+          ...nonAreaSeries.map((it) => it.data),
+          domainForStackedBars(areaSeries.map((it) => it.data)),
+        ])
+      : minMaxArr(primarySeries.map((it) => it.data));
 
-    // Merge with domain prop if provided
-    if (domain) {
-      if (domain[0] !== undefined) yMin = Math.min(yMin, domain[0]);
-      if (domain[1] !== undefined) yMax = Math.max(yMax, domain[1]);
-    }
-
-    if (!yMin && !yMax && !secondarySeries) {
-      return {
-        layout: null,
-        xScale: null,
-        yScale: null,
-        yScaleRight: null,
-        hasNegative: false,
-        areaSeries: [],
-        nonAreaSeries: [],
-      };
-    }
-
-    const hasNegative = yMin < 0;
-    const bottomInset = hasNegative ? CHART.inset.bottom : 0;
-
-    const xScale = d3
-      .scaleTime()
-      .domain(d3.extent(time) as [Date, Date])
-      .range([CHART.inset.left, CHART.width - CHART.inset.right]);
-
-    const yScale: YScale = d3
-      .scaleLinear()
-      .domain([yMax, yMin])
-      .nice()
-      .range([CHART.inset.top, CHART.height - bottomInset]);
-
-    // Calculate yScaleRight for secondary series (right axis)
-    let yScaleRight: YScale | null = null;
-    if (secondarySeries) {
-      const [secMin, secMax] = d3.extent(secondarySeries.data);
-      const secHasNegative = (secMin ?? 0) < 0;
-      const secBottomInset = secHasNegative ? CHART.inset.bottom : 0;
-
-      yScaleRight = d3
-        .scaleLinear()
-        .domain([secMax ?? 0, secMin ?? 0])
-        .nice()
-        .range([CHART.inset.top, CHART.height - secBottomInset]);
-    }
-
-    return {
-      layout,
-      xScale,
-      yScale,
-      yScaleRight,
-      hasNegative,
-      areaSeries,
-      nonAreaSeries,
-    };
-  }, [
-    props,
-    timeSeries,
-    primarySeries,
-    secondarySeries,
-    time,
-    stackedAreas,
-    domain,
-  ]);
-
-  if (!layout || !xScale || !yScale) {
-    return <svg />;
+  if (domain) {
+    [yMin, yMax] = minMax([yMin, yMax, ...domain]);
   }
 
-  const legendItems = timeSeries.map((s) => ({
-    label: s.legend,
-    color: s.color,
-  }));
+  const hasNegative = yMin < 0;
+  const bottomInset = hasNegative ? CHART.inset.bottom : 0;
+
+  const xScale = d3
+    .scaleTime()
+    .domain(d3.extent(time) as [Date, Date])
+    .range([CHART.inset.left, CHART.width - CHART.inset.right]);
+
+  const yScale: YScale = d3
+    .scaleLinear()
+    .domain([yMax, yMin])
+    .nice()
+    .range([CHART.inset.top, CHART.height - bottomInset]);
+
+  let yScaleRight: YScale | null = null;
+  if (secondarySeries) {
+    const [secMin, secMax] = minMax(secondarySeries.data);
+    const secBottomInset = secMin < 0 ? CHART.inset.bottom : 0;
+
+    yScaleRight = d3
+      .scaleLinear()
+      .domain([secMax, secMin])
+      .nice()
+      .range([CHART.inset.top, CHART.height - secBottomInset]);
+  }
 
   return (
     <svg
@@ -1104,7 +1038,6 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       )}
       {title && <ChartTitle title={title} layout={layout} />}
       {showAxis && <GridLines layout={layout} yScale={yScale} />}
-      {/*{hasNegative && <ZeroLine layout={layout} yScale={yScale} />}*/}
       {stackedAreas && (
         <StackedAreas
           areaSeries={areaSeries}
@@ -1152,7 +1085,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
         </>
       )}
       <ChartLegend
-        items={legendItems}
+        items={timeSeries}
         legendWidth={legendWidth}
         layout={layout}
       />
@@ -1165,17 +1098,7 @@ export function CategoricalChart(props: CategoricalChartProps) {
     props;
   const showAxis = props.showAxis ?? true;
 
-  const { layout, yScale, hasNegative, barSeries, lineSeries } = useMemo(() => {
-    if (series.length === 0 || labels.length === 0) {
-      return {
-        layout: null,
-        yScale: null,
-        hasNegative: false,
-        barSeries: [],
-        lineSeries: [],
-      };
-    }
-
+  const { layout, yScale, barSeries, lineSeries } = useMemo(() => {
     const barSeries = series.filter((s) => (s.variant ?? "bar") === "bar");
     const lineSeries = series.filter((s) => s.variant === "line");
 
@@ -1193,44 +1116,18 @@ export function CategoricalChart(props: CategoricalChartProps) {
       chartWidth,
     });
 
-    // For stacked bars, calculate the sum of all bar values per category
-    let yMin: number, yMax: number;
-    if (stackedBars) {
-      // For diverging stacks: positives stack up, negatives stack down
-      const positiveSums = labels.map((_, catIdx) =>
-        barSeries.reduce((sum, s) => sum + Math.max(0, s.values[catIdx]), 0),
-      );
-      const negativeSums = labels.map((_, catIdx) =>
-        barSeries.reduce((sum, s) => sum + Math.min(0, s.values[catIdx]), 0),
-      );
-      const lineValues = lineSeries.flatMap((s) => s.values);
-      yMax = Math.max(0, d3.max(positiveSums) ?? 0, d3.max(lineValues) ?? 0);
-      yMin = Math.min(0, d3.min(negativeSums) ?? 0, d3.min(lineValues) ?? 0);
-    } else {
-      const allValues = series.flatMap((s) => s.values);
-      const [dataMin, dataMax] = d3.extent(allValues) as [number, number];
-      yMin = dataMin ?? 0;
-      yMax = dataMax ?? 0;
-    }
+    let [yMin, yMax] = stackedBars
+      ? minMaxArr([
+          ...lineSeries.map((it) => it.values),
+          domainForStackedBars(barSeries.map((it) => it.values)),
+        ])
+      : minMaxArr(series.map((it) => it.values));
 
-    // Merge with domain prop if provided
     if (domain) {
-      if (domain[0] !== undefined) yMin = Math.min(yMin, domain[0]);
-      if (domain[1] !== undefined) yMax = Math.max(yMax, domain[1]);
+      [yMin, yMax] = minMax([yMin, yMax, ...domain]);
     }
 
-    if (!yMin && !yMax) {
-      return {
-        layout: null,
-        yScale: null,
-        hasNegative: false,
-        barSeries: [],
-        lineSeries: [],
-      };
-    }
-
-    const hasNegative = yMin < 0;
-    const bottomInset = hasNegative ? CHART.inset.bottom : 0;
+    const bottomInset = yMin < 0 ? CHART.inset.bottom : 0;
 
     const yScale: YScale = d3
       .scaleLinear()
@@ -1238,14 +1135,8 @@ export function CategoricalChart(props: CategoricalChartProps) {
       .nice()
       .range([CHART.inset.top, CHART.height - bottomInset]);
 
-    return { layout, yScale, hasNegative, barSeries, lineSeries };
-  }, [props, series, labels, stackedBars, domain]);
-
-  if (!layout || !yScale) {
-    return <svg />;
-  }
-
-  const legendItems = series.map((s) => ({ label: s.legend, color: s.color }));
+    return { layout, yScale, barSeries, lineSeries };
+  }, [series, labels, stackedBars, domain]);
 
   return (
     <svg
@@ -1256,7 +1147,6 @@ export function CategoricalChart(props: CategoricalChartProps) {
     >
       {title && <ChartTitle title={title} layout={layout} />}
       {showAxis && <GridLines layout={layout} yScale={yScale} />}
-      {/*{hasNegative && <ZeroLine layout={layout} yScale={yScale} />}*/}
       {stackedBars ? (
         <StackedCategoricalBars
           barSeries={barSeries}
@@ -1288,11 +1178,7 @@ export function CategoricalChart(props: CategoricalChartProps) {
           />
         </>
       )}
-      <ChartLegend
-        items={legendItems}
-        legendWidth={legendWidth}
-        layout={layout}
-      />
+      <ChartLegend items={series} legendWidth={legendWidth} layout={layout} />
     </svg>
   );
 }
