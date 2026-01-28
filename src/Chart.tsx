@@ -56,7 +56,7 @@
  */
 
 import * as d3 from "d3";
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { domainForStackedBars, minMax, minMaxArr } from "./utils.ts";
 
 export type TimeSeriesItem = {
@@ -399,10 +399,12 @@ function ChartLegend({
   items,
   legendWidth,
   layout,
+  hoveredValues,
 }: {
   items: { label?: string; legend?: string; color: string }[];
   legendWidth?: number[];
   layout: Layout;
+  hoveredValues?: (number | null)[];
 }) {
   if (!layout.legend || !legendWidth) return null;
   const { x: startX, y: startY } = layout.legend;
@@ -418,6 +420,11 @@ function ChartLegend({
           startX + legendWidth.slice(0, col).reduce((a, b) => a + b, 0);
         const itemY = startY + row * LEGEND.rowHeight;
         const lineY = itemY + LEGEND.rowHeight / 2;
+
+        const label = item.label || item.legend || "";
+        const hoverVal = hoveredValues?.[index];
+        const displayText =
+          hoverVal != null ? `${label}: ${d3.format(".3~s")(hoverVal)}` : label;
 
         return (
           <g key={index}>
@@ -438,7 +445,7 @@ function ChartLegend({
               fill={LEGEND.color}
               dominantBaseline="middle"
             >
-              {item.label || item.legend}
+              {displayText}
             </text>
           </g>
         );
@@ -948,6 +955,61 @@ function CategoricalLines({
   );
 }
 
+function Crosshair({
+  x,
+  label,
+  layout,
+}: {
+  x: number | null;
+  label: string | null;
+  layout: Layout;
+}) {
+  if (x == null || !layout.chart || !label || !layout.axisX) return null;
+
+  const paddingX = 4;
+  const paddingY = 2;
+
+  const labelY =
+    layout.axisX.y + AXIS.tickSize + AXIS.tickLabelGap + AXIS.fontSize;
+  const estWidth = label.length * AXIS.fontSize * 0.6 + paddingX * 2;
+  const estHeight = AXIS.fontSize + paddingY * 2;
+
+  return (
+    <g pointerEvents="none">
+      <line
+        x1={x}
+        y1={layout.chart.y}
+        x2={x}
+        y2={layout.chart.y + layout.chart.height}
+        stroke={AXIS.color}
+        strokeWidth={1}
+        strokeDasharray="3,2"
+      />
+      <rect
+        x={x - estWidth / 2}
+        y={labelY - AXIS.fontSize - paddingY}
+        width={estWidth}
+        height={estHeight}
+        rx={2}
+        fill="#fff"
+        stroke={AXIS.grid.color}
+        strokeWidth={1}
+      />
+      <text
+        x={x}
+        y={labelY}
+        fontSize={AXIS.fontSize}
+        fontFamily={AXIS.fontFamily}
+        fill={TITLE.color}
+        fontWeight={600}
+        textAnchor="middle"
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
+
 export function TimeSeriesChart(props: TimeSeriesChartProps) {
   const {
     timeSeries,
@@ -960,6 +1022,9 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     domain,
   } = props;
   const showAxis = props.showAxis ?? true;
+
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   const exceededSeries =
     timeSeries.find((s) => s.variant === "exceeded") ?? null;
@@ -1017,12 +1082,53 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       .range([CHART.inset.top, CHART.height - secBottomInset]);
   }
 
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg || !layout.chart) return;
+
+    const bisector = d3.bisector<Date, Date>((d) => d).left;
+
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const svgP = pt.matrixTransform(svg.getScreenCTM()!.inverse());
+    const mouseX = svgP.x - layout.chart.x;
+
+    const hoveredDate = xScale.invert(mouseX);
+    let idx = bisector(time, hoveredDate);
+    // snap to nearest
+    if (idx > 0 && idx < time.length) {
+      const d0 = time[idx - 1];
+      const d1 = time[idx];
+      if (!(+hoveredDate - +d0 > +d1 - +hoveredDate)) idx = idx - 1;
+    }
+    idx = Math.max(0, Math.min(time.length - 1, idx));
+    setHoveredIndex(idx);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredIndex(null);
+  }, []);
+
+  const hoveredValues =
+    hoveredIndex != null
+      ? timeSeries.map((s) => s.data[hoveredIndex] ?? null)
+      : undefined;
+
+  const hoveredX =
+    hoveredIndex != null && layout.chart
+      ? layout.chart.x + xScale(time[hoveredIndex])
+      : null;
+
   return (
     <svg
+      ref={svgRef}
       width={layout.totalWidth}
       height={layout.totalHeight}
       style={{ backgroundColor: "#fff" }}
       xmlns="http://www.w3.org/2000/svg"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
     >
       {exceededMaskId && exceededSeries && (
         <defs>
@@ -1084,10 +1190,16 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
           />
         </>
       )}
+      <Crosshair
+        x={hoveredX}
+        label={hoveredIndex != null ? timeFormat(time[hoveredIndex]) : null}
+        layout={layout}
+      />
       <ChartLegend
         items={timeSeries}
         legendWidth={legendWidth}
         layout={layout}
+        hoveredValues={hoveredValues}
       />
     </svg>
   );
