@@ -8,191 +8,382 @@ import {
 // import { ChartLines, CombinedChart, renderAsString } from "./CombinedChart.tsx";
 // import { useEffect, useMemo, useState } from "react";
 
-// --- Test data ---
+// --- Seeded random for reproducible mock data ---
 
-const testTime = [
-  new Date("2024-01-01T00:00:00"),
-  new Date("2024-01-02T00:00:00"),
-  new Date("2024-01-03T00:00:00"),
-  new Date("2024-01-04T00:00:00"),
-  new Date("2024-01-05T00:00:00"),
-  new Date("2024-01-06T00:00:00"),
-  new Date("2024-01-07T00:00:00"),
-];
+function seededRandom(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 16807 + 0) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+// --- Data generation helpers ---
+
+/** Generate 15-min interval timestamps over a date range */
+function generateTimeAxis(start: Date, months: number): Date[] {
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + months);
+  const times: Date[] = [];
+  const cur = new Date(start);
+  while (cur < end) {
+    times.push(new Date(cur));
+    cur.setMinutes(cur.getMinutes() + 15);
+  }
+  return times;
+}
+
+/** Generate a realistic 15-min energy signal with daily, weekly & seasonal patterns */
+function generateSignal(
+  timeAxis: Date[],
+  opts: {
+    base: number;
+    dailyAmp: number;
+    seasonalAmp: number;
+    noise: number;
+    seed: number;
+    peakHour?: number; // hour of day for daily peak (default 14)
+    seasonalPeakMonth?: number; // 0-11, month index for seasonal peak (default 6 = July)
+    weekendFactor?: number; // multiplier applied on Sat/Sun (default 1.0 = no change)
+    weekdayProfile?: number[]; // per-day-of-week multiplier [Mon..Sun], overrides weekendFactor
+    nightZero?: boolean; // if true, clamp to 0 outside sunrise-sunset (useful for solar)
+  },
+): number[] {
+  const rand = seededRandom(opts.seed);
+  const peakHour = opts.peakHour ?? 14;
+  const seasonalPeak = opts.seasonalPeakMonth ?? 6;
+  const nightZero = opts.nightZero ?? false;
+  const weekdayProfile = opts.weekdayProfile; // Mon=0 .. Sun=6
+  const weekendFactor = opts.weekendFactor ?? 1.0;
+
+  const data: number[] = [];
+  for (let i = 0; i < timeAxis.length; i++) {
+    const t = timeAxis[i];
+    const hourOfDay = t.getHours() + t.getMinutes() / 60;
+    const month = t.getMonth(); // 0-11
+    const dow = (t.getDay() + 6) % 7; // Mon=0 .. Sun=6
+
+    // daily cycle: cosine centered on peakHour
+    const daily =
+      opts.dailyAmp * Math.cos(((hourOfDay - peakHour) / 24) * 2 * Math.PI);
+
+    // seasonal cycle: cosine centered on seasonalPeakMonth
+    const seasonal =
+      opts.seasonalAmp * Math.cos(((month - seasonalPeak) / 12) * 2 * Math.PI);
+
+    // weekly pattern
+    let weekFactor: number;
+    if (weekdayProfile) {
+      weekFactor = weekdayProfile[dow];
+    } else {
+      weekFactor = dow >= 5 ? weekendFactor : 1.0;
+    }
+
+    // sunrise/sunset mask for solar-like signals
+    // approximate sunrise/sunset shifting with season (hours)
+    if (nightZero) {
+      const summerShift = 2 * Math.cos(((month - 6) / 12) * 2 * Math.PI);
+      const sunrise = 6.5 - summerShift;
+      const sunset = 19.5 + summerShift;
+      if (hourOfDay < sunrise || hourOfDay > sunset) {
+        data.push(0);
+        continue;
+      }
+    }
+
+    const noise = opts.noise * (rand() - 0.5) * 2;
+    data.push(Math.max(0, (opts.base + daily + seasonal + noise) * weekFactor));
+  }
+  return data;
+}
+
+/** Aggregate 15-min data into monthly sums, returning labels and values */
+function aggregateMonthly(
+  time: Date[],
+  data: number[],
+): { labels: string[]; values: number[] } {
+  const map = new Map<string, number>();
+  for (let i = 0; i < time.length; i++) {
+    const key = d3.timeFormat("%b %Y")(time[i]);
+    map.set(key, (map.get(key) ?? 0) + data[i]);
+  }
+  return { labels: [...map.keys()], values: [...map.values()] };
+}
+
+// --- Test data: 10 months of 15-min energy measurements ---
+
+const DATA_START = new Date("2024-03-01T00:00:00");
+const DATA_MONTHS = 10;
+const testTime = generateTimeAxis(DATA_START, DATA_MONTHS);
+
+// Solar generation (kW) — zero at night, peaks midday, strong seasonal swing
+const solarData = generateSignal(testTime, {
+  base: 40,
+  dailyAmp: 35,
+  seasonalAmp: 25,
+  noise: 4,
+  seed: 1,
+  peakHour: 13,
+  seasonalPeakMonth: 6,
+  nightZero: true,
+  weekendFactor: 1.0, // solar doesn't care about weekdays
+});
+
+// Battery SoC (%) — charges during day, discharges at night; weekends draw less
+const batterySoCData = generateSignal(testTime, {
+  base: 55,
+  dailyAmp: 25,
+  seasonalAmp: 10,
+  noise: 8,
+  seed: 2,
+  peakHour: 17,
+  seasonalPeakMonth: 7,
+  weekendFactor: 1.1, // slightly higher SoC on weekends (less consumption)
+});
+
+// Grid consumption (kW) — higher at night and winter, drops on weekends
+const gridData = generateSignal(testTime, {
+  base: 40,
+  dailyAmp: 20,
+  seasonalAmp: 18,
+  noise: 6,
+  seed: 3,
+  peakHour: 2,
+  seasonalPeakMonth: 0, // peak in winter
+  weekdayProfile: [1.1, 1.05, 1.0, 1.05, 1.1, 0.7, 0.6], // Mon-Fri busy, Sat-Sun low
+});
+
+// Generator runtime (kW) — backup, ramps up in winter; rare on weekends
+const generatorData = generateSignal(testTime, {
+  base: 5,
+  dailyAmp: 3,
+  seasonalAmp: 10,
+  noise: 10,
+  seed: 4,
+  peakHour: 19,
+  seasonalPeakMonth: 0, // winter peak
+  weekdayProfile: [1.0, 1.0, 1.2, 1.1, 1.0, 0.3, 0.2], // almost off on weekends
+});
+
+// Site load (kW) — office/industrial pattern: high weekdays, low weekends
+const loadData = generateSignal(testTime, {
+  base: 60,
+  dailyAmp: 25,
+  seasonalAmp: 15,
+  noise: 7,
+  seed: 5,
+  peakHour: 14,
+  seasonalPeakMonth: 7, // cooling load in summer
+  weekdayProfile: [1.15, 1.1, 1.05, 1.1, 1.0, 0.55, 0.45], // big weekday/weekend contrast
+});
 
 const testTimeSeries: TimeSeriesItem[] = [
-  { legend: "Something", color: "#e41a1c", data: [10, 25, 15, 30, 22, 28, 35] },
-  {
-    legend: "Something bigger",
-    color: "#377eb8",
-    data: [5, 15, 20, 18, 25, 30, 28],
-  },
-  {
-    legend: "Something even more bigger",
-    color: "#4daf4a",
-    data: [20, 18, 22, 15, 20, 25, 30],
-  },
-];
-
-const mixedTimeSeries: TimeSeriesItem[] = [
-  { legend: "Profit", color: "#2ca02c", data: [12, -5, 18, -12, 25, 8, -3] },
-  { legend: "Loss", color: "#d62728", data: [-8, 15, -20, 10, -5, -15, 22] },
-];
-
-const aroundZeroSeries: TimeSeriesItem[] = [
-  { legend: "Delta A", color: "#9467bd", data: [2, -1, 3, -2, 1, -3, 4] },
-  { legend: "Delta B", color: "#ff7f0e", data: [-3, 2, -1, 4, -2, 1, -1] },
+  { legend: "Solar", color: "#f9a825", data: solarData },
 ];
 
 const mixedAreaSeries: TimeSeriesItem[] = [
   {
-    legend: "Net Flow",
+    legend: "Net Grid Flow",
     color: "#2ca02c",
     variant: "area",
-    data: [5, -3, 8, -6, 12, -2, 7],
+    data: solarData.map((s, i) => s - gridData[i]),
   },
 ];
 
 const mixedBarsSeries: TimeSeriesItem[] = [
   {
-    legend: "Net Change",
+    legend: "Battery Charge/Discharge",
     color: "#17becf",
     variant: "bars",
-    data: [8, -12, 15, -5, 20, -8, 10],
+    data: batterySoCData.map((_, i) =>
+      i === 0 ? 0 : batterySoCData[i] - batterySoCData[i - 1],
+    ),
   },
 ];
 
 const stackedAreaWithLine: TimeSeriesItem[] = [
   {
-    legend: "Revenue A",
-    color: "#1f77b4",
+    legend: "Solar",
+    color: "#f9a825",
     variant: "area",
-    data: [20, 25, 22, 28, 32, 29, 35].map((x, i) => x * 2 ** i),
+    data: solarData,
   },
   {
-    legend: "Revenue B",
+    legend: "Generator",
     color: "#ff7f0e",
     variant: "area",
-    data: [15, 18, 16, 20, 22, 20, 24].map((x, i) => x * 2 ** i),
+    data: generatorData,
   },
   {
-    legend: "Target",
+    legend: "Site Load",
     color: "#d62728",
     variant: "line",
-    data: [30, 38, 35, 45, 50, 46, 65].map((x, i) => x * 2 ** i),
+    data: loadData,
   },
 ];
 
 const formatDate = (d: Date) => d3.timeFormat("%b %d")(d);
 
-const categoricalLabels = ["Class A", "Class B", "Class C", "Class D"];
+// --- Categorical (monthly aggregated) data ---
+
+const solarMonthly = aggregateMonthly(testTime, solarData);
+const gridMonthly = aggregateMonthly(testTime, gridData);
+const generatorMonthly = aggregateMonthly(testTime, generatorData);
+const loadMonthly = aggregateMonthly(testTime, loadData);
+const batteryMonthly = aggregateMonthly(testTime, batterySoCData);
+
+const monthLabels = solarMonthly.labels;
 
 const categoricalSeries: CategoricalSeriesItem[] = [
-  { legend: "Before", color: "#e41a1c", values: [10, 25, 15, 30, 20, 25] },
-  { legend: "After", color: "#377eb8", values: [5, 15, 20, 18, 10, 12] },
+  {
+    legend: "Solar Generation",
+    color: "#f9a825",
+    values: solarMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Grid Import",
+    color: "#e53935",
+    values: gridMonthly.values.map((v) => Math.round(v / 1000)),
+  },
 ];
 
 const categoricalMixedSeries: CategoricalSeriesItem[] = [
-  { legend: "Delta", color: "#2ca02c", values: [8, -12, 15, -5] },
-  { legend: "Change", color: "#9467bd", values: [-5, 10, -8, 12] },
+  {
+    legend: "Grid Export",
+    color: "#2ca02c",
+    values: solarMonthly.values.map((s, i) =>
+      Math.round((s - loadMonthly.values[i]) / 1000),
+    ),
+  },
+  {
+    legend: "Grid Import",
+    color: "#d62728",
+    values: gridMonthly.values.map((g, i) =>
+      Math.round((g - solarMonthly.values[i] * 0.3) / 1000),
+    ),
+  },
 ];
 
 const categoricalWithLine: CategoricalSeriesItem[] = [
-  { legend: "Sales", color: "#1f77b4", values: [120, 180, 150, 200] },
-  { legend: "Costs", color: "#ff7f0e", values: [80, 100, 90, 110] },
   {
-    legend: "Trend",
-    color: "#2ca02c",
+    legend: "Solar (MWh)",
+    color: "#f9a825",
+    values: solarMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Generator (MWh)",
+    color: "#ff7f0e",
+    values: generatorMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Load (MWh)",
+    color: "#d62728",
     variant: "line",
-    values: [100, 140, 120, 155],
+    values: loadMonthly.values.map((v) => Math.round(v / 1000)),
   },
 ];
 
 const stackedSeries: CategoricalSeriesItem[] = [
-  { legend: "Q1", color: "#1f77b4", values: [40, 60, 50, 70] },
-  { legend: "Q2", color: "#ff7f0e", values: [35, 45, 40, 55] },
-  { legend: "Q3", color: "#2ca02c", values: [50, 55, 45, 60] },
-  { legend: "Q4", color: "#b13f84", values: [60, 65, 55, 65] },
+  {
+    legend: "Solar",
+    color: "#f9a825",
+    values: solarMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Grid",
+    color: "#e53935",
+    values: gridMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Generator",
+    color: "#ff7f0e",
+    values: generatorMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Battery",
+    color: "#1e88e5",
+    values: batteryMonthly.values.map((v) => Math.round(v / 1000)),
+  },
 ];
 
 const stackedWithLine: CategoricalSeriesItem[] = [
-  { legend: "Revenue", color: "#1f77b4", values: [80, 120, 100, 140] },
-  { legend: "Expenses", color: "#ff7f0e", values: [50, 70, 60, 80] },
   {
-    legend: "Target",
+    legend: "Solar",
+    color: "#f9a825",
+    values: solarMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Generator",
+    color: "#ff7f0e",
+    values: generatorMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Target Load",
     color: "#d62728",
     variant: "line",
-    values: [100, 150, 130, 180],
+    values: loadMonthly.values.map((v) => Math.round(v / 1000)),
   },
 ];
 
 const stackedDivergingSeries: CategoricalSeriesItem[] = [
-  { legend: "Income", color: "#2ca02c", values: [50, 80, 60, 90] },
-  { legend: "Savings", color: "#1f77b4", values: [20, 30, 25, 35] },
-  { legend: "Expenses", color: "#d62728", values: [-40, -60, -45, -70] },
-  { legend: "Taxes", color: "#ff7f0e", values: [-15, -25, -20, -30] },
+  {
+    legend: "Solar",
+    color: "#f9a825",
+    values: solarMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Generator",
+    color: "#ff7f0e",
+    values: generatorMonthly.values.map((v) => Math.round(v / 1000)),
+  },
+  {
+    legend: "Grid Import",
+    color: "#e53935",
+    values: gridMonthly.values.map((v) => -Math.round(v / 1000)),
+  },
+  {
+    legend: "Site Load",
+    color: "#7b1fa2",
+    values: loadMonthly.values.map((v) => -Math.round(v / 1000)),
+  },
 ];
 
 const stackedDivergingAreas: TimeSeriesItem[] = [
   {
-    legend: "Revenue",
-    color: "#2ca02c",
+    legend: "Solar",
+    color: "#f9a825",
     variant: "area",
-    data: [30, 45, 35, 50, 55, 48, 60],
+    data: solarData,
   },
   {
-    legend: "Other Income",
-    color: "#1f77b4",
-    variant: "area",
-    data: [10, 15, 12, 18, 20, 16, 22],
-  },
-  {
-    legend: "Costs",
-    color: "#d62728",
-    variant: "area",
-    data: [-20, -30, -25, -35, -40, -32, -45],
-  },
-  {
-    legend: "Depreciation",
+    legend: "Generator",
     color: "#ff7f0e",
     variant: "area",
-    data: [-5, -8, -6, -10, -12, -9, -14],
+    data: generatorData,
+  },
+  {
+    legend: "Grid Import",
+    color: "#e53935",
+    variant: "area",
+    data: gridData.map((v) => -v),
+  },
+  {
+    legend: "Site Load",
+    color: "#7b1fa2",
+    variant: "area",
+    data: loadData.map((v) => -v),
   },
 ];
 
 // --- Playground ---
 
 export function ChartPg() {
-  let crazyProps = [
-    ...testTimeSeries,
-    { item: "x-line", time: testTime, format: formatDate, hide: true }, // hide?: boolean
-    { item: "y-line", width: 60 }, // hide?: boolean
-    { item: "legend", cols: [120, 120] },
-  ];
-
   return (
     <div>
-      <h2>Time Series Charts</h2>
-      <TimeSeriesChart
-        title="Sample Time Series Chart"
-        timeSeries={testTimeSeries}
-        time={testTime}
-        unit="EUR"
-        timeFormat={formatDate}
-        legendWidth={[120, 120]}
-        showAxis={true}
-      />
-
       <h2>Custom Y Domain (starts at 0)</h2>
       <TimeSeriesChart
-        title="With domain=[0]"
-        timeSeries={[
-          {
-            legend: "Values",
-            color: "#1f77b4",
-            data: [50, 60, 55, 70, 65, 80, 75],
-          },
-        ]}
+        title="Site Load (kW)"
+        timeSeries={[{ legend: "Load", color: "#1f77b4", data: loadData }]}
         time={testTime}
         timeFormat={formatDate}
         legendWidth={[120]}
@@ -201,41 +392,52 @@ export function ChartPg() {
 
       <h2>Exceeded line</h2>
       <TimeSeriesChart
-        title="Exceeded line"
+        title="Battery SoC vs Min Threshold"
         timeSeries={[
           {
-            legend: "Actual",
+            legend: "Battery SoC",
             color: "#2196F3",
             variant: "area",
-            data: [22, 15, 15, 30, 20],
+            data: batterySoCData,
           },
           {
-            legend: "Threshold",
+            legend: "Min SoC Limit",
             color: "#666",
             variant: "exceeded",
-            data: [20, 25, 22, 20, 15],
+            data: batterySoCData.map((_, i) =>
+              Math.floor(i / 100) % 10 > 5 ? 20 : 30,
+            ),
           },
         ]}
         time={testTime}
+        unit="%"
         timeFormat={formatDate}
         legendWidth={[120, 120]}
       />
 
       <h2>Dual Y-Axis (secondUnit)</h2>
       <TimeSeriesChart
-        title="Power Consumption vs Temperature"
+        title="Solar Output vs Ambient Temperature"
         timeSeries={[
           {
-            legend: "Power",
-            color: "#1f77b4",
+            legend: "Solar",
+            color: "#f9a825",
             variant: "line",
-            data: [120, 180, 150, 200, 175, 220, 190],
+            data: solarData,
           },
           {
             legend: "Temperature",
             color: "#d62728",
             secondUnit: "°C",
-            data: [18, 22, 20, 25, 23, 28, 24],
+            data: generateSignal(testTime, {
+              base: 18,
+              dailyAmp: 6,
+              seasonalAmp: 10,
+              noise: 2,
+              seed: 7,
+              peakHour: 15,
+              seasonalPeakMonth: 7,
+            }),
           },
         ]}
         time={testTime}
@@ -244,66 +446,61 @@ export function ChartPg() {
         legendWidth={[120, 120]}
       />
 
-      <h2>Categorical Charts</h2>
+      <h2>Categorical Charts (Monthly Aggregated)</h2>
       <CategoricalChart
-        title="Sample Categorical"
-        labels={[...categoricalLabels, "Class E", "Class F"]}
+        title="Monthly Energy Production (MWh)"
+        labels={monthLabels}
         series={categoricalSeries}
-        legendWidth={[80, 80]}
+        unit="MWh"
+        legendWidth={[120, 120]}
       />
 
       <h3>Categorical with negative values</h3>
       <CategoricalChart
-        title="Changes by Class"
-        labels={categoricalLabels}
+        title="Grid Import / Export Balance (MWh)"
+        labels={monthLabels}
         series={categoricalMixedSeries}
-        legendWidth={[80, 80]}
+        unit="MWh"
+        legendWidth={[100, 100]}
       />
 
       <h3>Bars with line overlay</h3>
       <CategoricalChart
-        title="Sales vs Costs with Trend"
-        labels={categoricalLabels}
+        title="Generation vs Load (MWh)"
+        labels={monthLabels}
         series={categoricalWithLine}
-        legendWidth={[80, 80, 80]}
+        unit="MWh"
+        legendWidth={[100, 100, 100]}
       />
 
       <h3>Stacked bars</h3>
       <CategoricalChart
-        title="Quarterly Revenue by Class"
-        labels={categoricalLabels}
+        title="Energy Sources by Month (MWh)"
+        labels={monthLabels}
         series={stackedSeries}
         stackedBars={true}
-        legendWidth={[60, 60]}
+        unit="MWh"
+        legendWidth={[80, 80, 80, 80]}
       />
 
       <h3>Stacked bars with line overlay</h3>
       <CategoricalChart
-        title="Revenue vs Target"
-        labels={categoricalLabels}
+        title="Generation vs Target Load (MWh)"
+        labels={monthLabels}
         series={stackedWithLine}
         stackedBars={true}
-        legendWidth={[80, 80]}
+        unit="MWh"
+        legendWidth={[80, 80, 100]}
       />
 
       <h3>Diverging stacked bars (positive/negative)</h3>
       <CategoricalChart
-        title="Cash Flow Analysis"
-        labels={categoricalLabels}
+        title="Energy Balance: Sources vs Consumption (MWh)"
+        labels={monthLabels}
         series={stackedDivergingSeries}
         stackedBars={true}
-        legendWidth={[80, 80]}
-      />
-
-      <h3>Legend before chart</h3>
-      <TimeSeriesChart
-        title="Legend First"
-        timeSeries={testTimeSeries}
-        time={testTime}
-        timeFormat={formatDate}
-        legendWidth={[100, 100, 100]}
-        showAxis={true}
-        layoutRows={["title", "legend", "chart"]}
+        unit="MWh"
+        legendWidth={[80, 80, 80, 80]}
       />
 
       <h3>Chart only (no legend)</h3>
@@ -314,54 +511,46 @@ export function ChartPg() {
         layoutRows={["chart"]}
       />
 
-      <h3>Mixed values (positive & negative)</h3>
-      <TimeSeriesChart
-        title="Profit / Loss"
-        timeSeries={mixedTimeSeries}
-        time={testTime}
-        timeFormat={formatDate}
-        legendWidth={[100, 100]}
-        showAxis={true}
-      />
-
-      <h3>Small values around zero</h3>
-      <TimeSeriesChart
-        title="Delta Values"
-        timeSeries={aroundZeroSeries}
-        time={testTime}
-        timeFormat={formatDate}
-        legendWidth={[100, 100]}
-        showAxis={true}
-      />
-
       <h3>Area and bars with mixed values</h3>
       <TimeSeriesChart
-        title="Net Cash Flow"
-        timeSeries={[...mixedAreaSeries, ...mixedBarsSeries]}
-        time={testTime}
+        title="Net Grid Flow & Battery Charge Cycles"
+        timeSeries={[...mixedAreaSeries, ...mixedBarsSeries].map((it) => {
+          it.data = it.data.slice(3000, 3100);
+          return it;
+        })}
+        time={testTime.slice(3000, 3100)}
+        unit="kW"
         timeFormat={formatDate}
-        legendWidth={[100]}
+        legendWidth={[120, 160]}
         showAxis={true}
       />
 
       <h3>Stacked areas with line overlay</h3>
       <TimeSeriesChart
-        title="Revenue vs Target"
-        timeSeries={stackedAreaWithLine}
-        time={testTime}
+        title="Generation Sources vs Site Load"
+        timeSeries={stackedAreaWithLine.map((it) => {
+          it.data = it.data.slice(3000, 3100);
+          return it;
+        })}
+        time={testTime.slice(3000, 3100)}
+        unit="kW"
         timeFormat={formatDate}
-        legendWidth={[100, 100, 100]}
+        legendWidth={[80, 100, 100]}
         showAxis={true}
         stackedAreas={true}
       />
 
       <h3>Diverging stacked areas (positive/negative)</h3>
       <TimeSeriesChart
-        title="Income vs Expenses"
-        timeSeries={stackedDivergingAreas}
-        time={testTime}
+        title="Energy Balance: Generation vs Consumption"
+        timeSeries={stackedDivergingAreas.map((it) => {
+          it.data = it.data.slice(3000, 3100);
+          return it;
+        })}
+        time={testTime.slice(3000, 3100)}
+        unit="kW"
         timeFormat={formatDate}
-        legendWidth={[100, 100, 100, 100]}
+        legendWidth={[80, 100, 100, 80]}
         showAxis={true}
         stackedAreas={true}
       />
