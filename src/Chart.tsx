@@ -101,16 +101,20 @@ export type CategoricalChartProps = {
 
 export type HeatMapChartProps = {
   title?: string | null;
-  /** data[dayIndex][slot] — inner array length determines Y resolution (24 = hourly, 96 = 15-min) */
+  /** data[col][row] — generic 2D grid */
   data: number[][];
-  /** Date for each day column (x-axis). Labels shown at month boundaries. */
-  days: Date[];
   /** Two-color range [min, max]. Defaults to blue→red. */
   colorRange?: [string, string];
-  /** Cell width in px (per day column). Default 6. */
+  /** Cell width in px (per column). Default 6. */
   cellWidth?: number;
-  /** Cell height in px (per Y slot). Default = cellWidth. */
+  /** Cell height in px (per row). Default = cellWidth. */
   cellHeight?: number;
+  /** Date per column — shows month-boundary labels on X axis */
+  days?: Date[];
+  /** Custom X-axis labels at specific column positions. Used instead of days. */
+  xLabels?: { col: number; label: string }[];
+  /** Custom Y-axis labels at specific row positions. Used instead of hour labels. */
+  yLabels?: { row: number; label: string }[];
 };
 
 const defaultLayoutRows = ["title", "legend", "chart"];
@@ -1317,19 +1321,22 @@ const HEATMAP = {
 export function HeatMapChart({
   title,
   data,
-  days,
   colorRange = ["#4575b4", "#d73027"],
   cellWidth: cw = 6,
   cellHeight: ch,
+  days,
+  xLabels,
+  yLabels,
 }: HeatMapChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const cellW = cw;
   const cellH = ch ?? cw;
-  const cols = days.length;
+  const cols = data.length;
   const rows = data[0]?.length ?? 0;
-  // Derive time resolution: slots per hour (1 for hourly, 4 for 15-min, etc.)
-  const slotsPerHour = rows / 24;
+  const hasCustomY = !!yLabels;
+  // Derive time resolution (only used when Y = hours)
+  const slotsPerHour = hasCustomY ? 1 : rows / 24;
 
   const chartLeft = AXIS.leftWidth;
   const chartTop = (title ? TITLE.height + GAP : 0) + PADDING.top;
@@ -1339,21 +1346,22 @@ export function HeatMapChart({
   const height =
     chartTop + chartH + AXIS.bottomHeight + GAP + HEATMAP.legendHeight + 14;
 
-  // Y-axis tick positions: every 3 hours, expressed as slot indices
+  // Y-axis tick positions
   const yTicks = useMemo(() => {
-    const ticks: { slot: number; label: string }[] = [];
+    if (yLabels) return yLabels;
+    const ticks: { row: number; label: string }[] = [];
     for (let h = 0; h < 24; h += 3) {
-      ticks.push({ slot: Math.round(h * slotsPerHour), label: `${h}:00` });
+      ticks.push({ row: Math.round(h * slotsPerHour), label: `${h}:00` });
     }
     return ticks;
-  }, [slotsPerHour]);
+  }, [yLabels, slotsPerHour]);
 
   // Flatten all values for the domain
   const [vMin, vMax] = useMemo(() => {
     let min = Infinity;
     let max = -Infinity;
-    for (const row of data) {
-      for (const v of row) {
+    for (const col of data) {
+      for (const v of col) {
         if (v < min) min = v;
         if (v > max) max = v;
       }
@@ -1382,8 +1390,8 @@ export function HeatMapChart({
     // Grid lines (horizontal, at Y tick positions)
     ctx.strokeStyle = AXIS.grid.color;
     ctx.lineWidth = AXIS.grid.width;
-    for (const { slot } of yTicks) {
-      const y = chartTop + slot * cellH;
+    for (const { row } of yTicks) {
+      const y = chartTop + row * cellH;
       ctx.beginPath();
       ctx.moveTo(chartLeft, y);
       ctx.lineTo(chartLeft + chartW, y);
@@ -1392,14 +1400,14 @@ export function HeatMapChart({
 
     // Draw cells — batch by color runs within each column for performance
     for (let col = 0; col < cols; col++) {
-      const dayData = data[col];
-      if (!dayData) continue;
+      const colData = data[col];
+      if (!colData) continue;
       const x = chartLeft + col * cellW;
       let runStart = 0;
       let runColor: string | null = null;
 
       for (let r = 0; r <= rows; r++) {
-        const value = r < rows ? dayData[r] : NaN;
+        const value = r < rows ? colData[r] : NaN;
         const color = value != null && !isNaN(value) ? colorScale(value) : null;
 
         if (color !== runColor) {
@@ -1418,23 +1426,24 @@ export function HeatMapChart({
       }
     }
 
-    // Y-axis: hour labels with tick marks
+    // Y-axis labels with tick marks
     ctx.fillStyle = AXIS.color;
     ctx.font = `${AXIS.fontSize}px ${AXIS.fontFamily}`;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     ctx.strokeStyle = AXIS.color;
     ctx.lineWidth = AXIS.lineWidth;
-    for (const { slot, label } of yTicks) {
-      const y = chartTop + slot * cellH;
+    for (const { row, label } of yTicks) {
+      const y = chartTop + row * cellH;
       // Tick mark
       ctx.beginPath();
       ctx.moveTo(chartLeft - AXIS.tickSize, y);
       ctx.lineTo(chartLeft, y);
       ctx.stroke();
-      // Label — vertically center between this tick and the next one below
-      // For small cellH the label sits at the tick line itself
-      const labelOffset = Math.min((3 * slotsPerHour * cellH) / 2, 6);
+      // Label offset: for hour-mode center in the 3h band, for custom just beside the tick
+      const labelOffset = hasCustomY
+        ? AXIS.fontSize / 2 + 1
+        : Math.min((3 * slotsPerHour * cellH) / 2, 6);
       ctx.fillText(
         label,
         chartLeft - AXIS.tickSize - AXIS.tickLabelGap,
@@ -1442,29 +1451,47 @@ export function HeatMapChart({
       );
     }
 
-    // X-axis: tick + label at the 1st of each month
+    // X-axis
     ctx.textBaseline = "top";
-    const formatMonth = d3.timeFormat("%b");
-    for (let d = 0; d < cols; d++) {
-      const date = days[d];
-      const isFirst = date.getDate() === 1;
-      const isFirstCol = d === 0;
-      if (!isFirst && !isFirstCol) continue;
+    ctx.strokeStyle = AXIS.color;
+    ctx.lineWidth = AXIS.lineWidth;
+    if (xLabels) {
+      // Positioned labels at specific columns
+      for (const { col, label } of xLabels) {
+        const x = chartLeft + col * cellW;
+        const axisY = chartTop + chartH;
+        ctx.beginPath();
+        ctx.moveTo(x, axisY);
+        ctx.lineTo(x, axisY + AXIS.tickSize);
+        ctx.stroke();
+        ctx.textAlign = "left";
+        ctx.fillStyle = AXIS.color;
+        ctx.fillText(label, x + 2, axisY + AXIS.tickSize + AXIS.tickLabelGap);
+      }
+    } else if (days) {
+      // Date-based: tick + label at month boundaries
+      const formatMonth = d3.timeFormat("%b");
+      for (let d = 0; d < cols; d++) {
+        const date = days[d];
+        if (!date) continue;
+        const isFirst = date.getDate() === 1;
+        const isFirstCol = d === 0;
+        if (!isFirst && !isFirstCol) continue;
 
-      const x = chartLeft + d * cellW;
-      const axisY = chartTop + chartH;
-      // Tick mark
-      ctx.beginPath();
-      ctx.moveTo(x, axisY);
-      ctx.lineTo(x, axisY + AXIS.tickSize);
-      ctx.stroke();
-      // Label
-      ctx.textAlign = "left";
-      ctx.fillText(
-        formatMonth(date),
-        x + 2,
-        axisY + AXIS.tickSize + AXIS.tickLabelGap,
-      );
+        const x = chartLeft + d * cellW;
+        const axisY = chartTop + chartH;
+        ctx.beginPath();
+        ctx.moveTo(x, axisY);
+        ctx.lineTo(x, axisY + AXIS.tickSize);
+        ctx.stroke();
+        ctx.textAlign = "left";
+        ctx.fillStyle = AXIS.color;
+        ctx.fillText(
+          formatMonth(date),
+          x + 2,
+          axisY + AXIS.tickSize + AXIS.tickLabelGap,
+        );
+      }
     }
 
     // Title
@@ -1491,20 +1518,22 @@ export function HeatMapChart({
     ctx.fillStyle = AXIS.color;
     ctx.font = `${AXIS.fontSize}px ${AXIS.fontFamily}`;
     ctx.textBaseline = "top";
-    const labelY = ly + lh + 2;
+    const legendLabelY = ly + lh + 2;
     ctx.textAlign = "left";
-    ctx.fillText(d3.format(".1f")(vMin), lx, labelY);
+    ctx.fillText(d3.format(".1f")(vMin), lx, legendLabelY);
     ctx.textAlign = "right";
-    ctx.fillText(d3.format(".1f")(vMax), lx + lw, labelY);
+    ctx.fillText(d3.format(".1f")(vMax), lx + lw, legendLabelY);
   }, [
     data,
     days,
+    xLabels,
     cols,
     rows,
     width,
     height,
     cellW,
     cellH,
+    hasCustomY,
     slotsPerHour,
     colorRange,
     vMin,

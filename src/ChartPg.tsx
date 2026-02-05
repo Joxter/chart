@@ -422,11 +422,79 @@ function reshapeToHourly(
   return { data, days };
 }
 
+/**
+ * Reshape a flat 15-min signal into weekly grid with full 15-min resolution.
+ * X = week timeline (7 days × 96 slots = 672 columns), Y = week number (~52 rows).
+ * data[weekSlot][weekIndex] where weekSlot = dow * 96 + slotInDay.
+ */
+function reshapeToWeekly(
+  signal: number[],
+  startDate: Date,
+): {
+  data: number[][];
+  xLabels: { col: number; label: string }[];
+  yLabels: { row: number; label: string }[];
+} {
+  const slotsPerDay = 96;
+  const totalDays = Math.floor(signal.length / slotsPerDay);
+  const startDow = (startDate.getDay() + 6) % 7; // Mon=0
+  const totalWeeks = Math.ceil((totalDays + startDow) / 7);
+  const weekCols = 7 * slotsPerDay; // 672
+
+  // data[weekSlot][weekIndex]
+  const data: number[][] = Array.from({ length: weekCols }, () =>
+    Array(totalWeeks).fill(NaN),
+  );
+
+  for (let d = 0; d < totalDays; d++) {
+    const dow = (d + startDow) % 7;
+    const week = Math.floor((d + startDow) / 7);
+    const srcBase = d * slotsPerDay;
+    const colBase = dow * slotsPerDay;
+    for (let s = 0; s < slotsPerDay; s++) {
+      data[colBase + s][week] = signal[srcBase + s] ?? NaN;
+    }
+  }
+
+  // X labels: day names at the start of each day's 96-slot block
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const xLabels = dayNames.map((label, i) => ({
+    col: i * slotsPerDay,
+    label,
+  }));
+
+  // Y labels: season starts mapped to week rows
+  const seasons = [
+    { month: 2, day: 20, label: "Spring" },
+    { month: 5, day: 20, label: "Summer" },
+    { month: 8, day: 22, label: "Autumn" },
+    { month: 11, day: 21, label: "Winter" },
+  ];
+  const yLabels: { row: number; label: string }[] = [];
+  for (const s of seasons) {
+    for (const year of [startDate.getFullYear(), startDate.getFullYear() + 1]) {
+      const sDate = new Date(year, s.month, s.day);
+      const diffDays = Math.round(
+        (sDate.getTime() - startDate.getTime()) / 86400000,
+      );
+      if (diffDays >= 0 && diffDays < totalDays) {
+        const week = Math.floor((diffDays + startDow) / 7);
+        yLabels.push({ row: week, label: s.label });
+      }
+    }
+  }
+
+  return { data, xLabels, yLabels };
+}
+
 const loadHourly = reshapeToHourly(loadData, DATA_START);
 const solarHourly = reshapeToHourly(solarData, DATA_START);
 const load15min = reshapeTo15min(loadData, DATA_START);
 const solar15min = reshapeTo15min(solarData, DATA_START);
 const grid15min = reshapeTo15min(gridData, DATA_START);
+const loadWeekly = reshapeToWeekly(loadData, DATA_START);
+const solarWeekly = reshapeToWeekly(solarData, DATA_START);
+const gridWeekly = reshapeToWeekly(gridData, DATA_START);
 
 // --- Tab helpers: sync active tab with URL search param ---
 
@@ -672,6 +740,37 @@ function CategoricalTab() {
 function HeatMapTab() {
   return (
     <>
+      <h3>Weekly view (Mon–Sun x Weeks)</h3>
+      <HeatMapChart
+        title="Site Load — Weekly"
+        data={loadWeekly.data}
+        xLabels={loadWeekly.xLabels}
+        yLabels={loadWeekly.yLabels}
+        colorRange={["#4575b4", "#d73027"]}
+        cellWidth={1}
+        cellHeight={2}
+      />
+
+      <HeatMapChart
+        title="Solar Output — Weekly"
+        data={solarWeekly.data}
+        xLabels={solarWeekly.xLabels}
+        yLabels={solarWeekly.yLabels}
+        colorRange={["#ffffcc", "#f9a825"]}
+        cellWidth={1}
+        cellHeight={2}
+      />
+
+      <HeatMapChart
+        title="Grid Consumption — Weekly"
+        data={gridWeekly.data}
+        xLabels={gridWeekly.xLabels}
+        yLabels={gridWeekly.yLabels}
+        colorRange={["#e8f5e9", "#e53935"]}
+        cellWidth={1}
+        cellHeight={2}
+      />
+
       <h3>Hourly resolution (24 rows)</h3>
       <HeatMapChart
         title="Site Load — Hourly"
