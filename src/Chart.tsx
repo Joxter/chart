@@ -424,7 +424,7 @@ function ChartLegend({
         const label = item.label || item.legend || "";
         const hoverVal = hoveredValues?.[index];
         const displayText =
-          hoverVal != null ? `${label}: ${d3.format(".3~s")(hoverVal)}` : label;
+          hoverVal != null ? `${label}: ${d3.format(".2f")(hoverVal)}` : label;
 
         return (
           <g key={index}>

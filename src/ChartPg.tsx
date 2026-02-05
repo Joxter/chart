@@ -163,7 +163,7 @@ const generatorData = generateSignal(testTime, {
   peakHour: 19,
   seasonalPeakMonth: 0, // winter peak
   weekdayProfile: [1.0, 1.0, 1.2, 1.1, 1.0, 0.3, 0.2], // almost off on weekends
-});
+}).map((n) => (n === 0 ? 0.000001 : n));
 
 // Site load (kW) — office/industrial pattern: high weekdays, low weekends
 const loadData = generateSignal(testTime, {
