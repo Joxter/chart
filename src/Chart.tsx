@@ -56,7 +56,7 @@
  */
 
 import * as d3 from "d3";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { domainForStackedBars, minMax, minMaxArr } from "./utils.ts";
 
 export type TimeSeriesItem = {
@@ -97,6 +97,20 @@ export type CategoricalChartProps = {
   layoutRows?: ("title" | "legend" | "chart")[];
   unit?: string;
   domain?: number[];
+};
+
+export type HeatMapChartProps = {
+  title?: string | null;
+  /** data[dayIndex][slot] — inner array length determines Y resolution (24 = hourly, 96 = 15-min) */
+  data: number[][];
+  /** Date for each day column (x-axis). Labels shown at month boundaries. */
+  days: Date[];
+  /** Two-color range [min, max]. Defaults to blue→red. */
+  colorRange?: [string, string];
+  /** Cell width in px (per day column). Default 6. */
+  cellWidth?: number;
+  /** Cell height in px (per Y slot). Default = cellWidth. */
+  cellHeight?: number;
 };
 
 const defaultLayoutRows = ["title", "legend", "chart"];
@@ -1293,4 +1307,215 @@ export function CategoricalChart(props: CategoricalChartProps) {
       <ChartLegend items={series} legendWidth={legendWidth} layout={layout} />
     </svg>
   );
+}
+
+const HEATMAP = {
+  legendHeight: 10,
+  legendWidth: 200,
+};
+
+export function HeatMapChart({
+  title,
+  data,
+  days,
+  colorRange = ["#4575b4", "#d73027"],
+  cellWidth: cw = 6,
+  cellHeight: ch,
+}: HeatMapChartProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const cellW = cw;
+  const cellH = ch ?? cw;
+  const cols = days.length;
+  const rows = data[0]?.length ?? 0;
+  // Derive time resolution: slots per hour (1 for hourly, 4 for 15-min, etc.)
+  const slotsPerHour = rows / 24;
+
+  const chartLeft = AXIS.leftWidth;
+  const chartTop = (title ? TITLE.height + GAP : 0) + PADDING.top;
+  const chartW = cols * cellW;
+  const chartH = rows * cellH;
+  const width = chartLeft + chartW + PADDING.right;
+  const height =
+    chartTop + chartH + AXIS.bottomHeight + GAP + HEATMAP.legendHeight + 14;
+
+  // Y-axis tick positions: every 3 hours, expressed as slot indices
+  const yTicks = useMemo(() => {
+    const ticks: { slot: number; label: string }[] = [];
+    for (let h = 0; h < 24; h += 3) {
+      ticks.push({ slot: Math.round(h * slotsPerHour), label: `${h}:00` });
+    }
+    return ticks;
+  }, [slotsPerHour]);
+
+  // Flatten all values for the domain
+  const [vMin, vMax] = useMemo(() => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const row of data) {
+      for (const v of row) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+    }
+    return [min, max];
+  }, [data]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || rows === 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    const ctx = canvas.getContext("2d")!;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+
+    const colorScale = d3
+      .scaleSequential(d3.interpolateRgb(colorRange[0], colorRange[1]))
+      .domain([vMin, vMax]);
+
+    // Grid lines (horizontal, at Y tick positions)
+    ctx.strokeStyle = AXIS.grid.color;
+    ctx.lineWidth = AXIS.grid.width;
+    for (const { slot } of yTicks) {
+      const y = chartTop + slot * cellH;
+      ctx.beginPath();
+      ctx.moveTo(chartLeft, y);
+      ctx.lineTo(chartLeft + chartW, y);
+      ctx.stroke();
+    }
+
+    // Draw cells — batch by color runs within each column for performance
+    for (let col = 0; col < cols; col++) {
+      const dayData = data[col];
+      if (!dayData) continue;
+      const x = chartLeft + col * cellW;
+      let runStart = 0;
+      let runColor: string | null = null;
+
+      for (let r = 0; r <= rows; r++) {
+        const value = r < rows ? dayData[r] : NaN;
+        const color = value != null && !isNaN(value) ? colorScale(value) : null;
+
+        if (color !== runColor) {
+          if (runColor !== null) {
+            ctx.fillStyle = runColor;
+            ctx.fillRect(
+              x,
+              chartTop + runStart * cellH,
+              cellW,
+              (r - runStart) * cellH,
+            );
+          }
+          runStart = r;
+          runColor = color;
+        }
+      }
+    }
+
+    // Y-axis: hour labels with tick marks
+    ctx.fillStyle = AXIS.color;
+    ctx.font = `${AXIS.fontSize}px ${AXIS.fontFamily}`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = AXIS.color;
+    ctx.lineWidth = AXIS.lineWidth;
+    for (const { slot, label } of yTicks) {
+      const y = chartTop + slot * cellH;
+      // Tick mark
+      ctx.beginPath();
+      ctx.moveTo(chartLeft - AXIS.tickSize, y);
+      ctx.lineTo(chartLeft, y);
+      ctx.stroke();
+      // Label — vertically center between this tick and the next one below
+      // For small cellH the label sits at the tick line itself
+      const labelOffset = Math.min((3 * slotsPerHour * cellH) / 2, 6);
+      ctx.fillText(
+        label,
+        chartLeft - AXIS.tickSize - AXIS.tickLabelGap,
+        y + labelOffset,
+      );
+    }
+
+    // X-axis: tick + label at the 1st of each month
+    ctx.textBaseline = "top";
+    const formatMonth = d3.timeFormat("%b");
+    for (let d = 0; d < cols; d++) {
+      const date = days[d];
+      const isFirst = date.getDate() === 1;
+      const isFirstCol = d === 0;
+      if (!isFirst && !isFirstCol) continue;
+
+      const x = chartLeft + d * cellW;
+      const axisY = chartTop + chartH;
+      // Tick mark
+      ctx.beginPath();
+      ctx.moveTo(x, axisY);
+      ctx.lineTo(x, axisY + AXIS.tickSize);
+      ctx.stroke();
+      // Label
+      ctx.textAlign = "left";
+      ctx.fillText(
+        formatMonth(date),
+        x + 2,
+        axisY + AXIS.tickSize + AXIS.tickLabelGap,
+      );
+    }
+
+    // Title
+    if (title) {
+      ctx.fillStyle = TITLE.color;
+      ctx.font = `${TITLE.fontWeight} ${TITLE.fontSize}px ${TITLE.fontFamily}`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(title, chartLeft, PADDING.top);
+    }
+
+    // Color legend bar
+    const lx = chartLeft;
+    const ly = chartTop + chartH + AXIS.bottomHeight + GAP;
+    const lw = Math.min(HEATMAP.legendWidth, chartW);
+    const lh = HEATMAP.legendHeight;
+    const grad = ctx.createLinearGradient(lx, 0, lx + lw, 0);
+    grad.addColorStop(0, colorRange[0]);
+    grad.addColorStop(1, colorRange[1]);
+    ctx.fillStyle = grad;
+    ctx.fillRect(lx, ly, lw, lh);
+
+    // Legend labels
+    ctx.fillStyle = AXIS.color;
+    ctx.font = `${AXIS.fontSize}px ${AXIS.fontFamily}`;
+    ctx.textBaseline = "top";
+    const labelY = ly + lh + 2;
+    ctx.textAlign = "left";
+    ctx.fillText(d3.format(".1f")(vMin), lx, labelY);
+    ctx.textAlign = "right";
+    ctx.fillText(d3.format(".1f")(vMax), lx + lw, labelY);
+  }, [
+    data,
+    days,
+    cols,
+    rows,
+    width,
+    height,
+    cellW,
+    cellH,
+    slotsPerHour,
+    colorRange,
+    vMin,
+    vMax,
+    title,
+    chartTop,
+    chartLeft,
+    chartW,
+    chartH,
+    yTicks,
+  ]);
+
+  return <canvas ref={canvasRef} />;
 }

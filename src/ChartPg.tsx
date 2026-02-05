@@ -1,12 +1,12 @@
 import * as d3 from "d3";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   TimeSeriesChart,
   CategoricalChart,
+  HeatMapChart,
   type TimeSeriesItem,
   type CategoricalSeriesItem,
 } from "./Chart";
-// import { ChartLines, CombinedChart, renderAsString } from "./CombinedChart.tsx";
-// import { useEffect, useMemo, useState } from "react";
 
 // --- Seeded random for reproducible mock data ---
 
@@ -114,7 +114,7 @@ function aggregateMonthly(
 
 const DATA_START = new Date("2024-03-01T00:00:00");
 const DATA_MONTHS = 10;
-const testTime = generateTimeAxis(DATA_START, DATA_MONTHS);
+const testTime = generateTimeAxis(DATA_START, 12);
 
 // Solar generation (kW) — zero at night, peaks midday, strong seasonal swing
 const solarData = generateSignal(testTime, {
@@ -375,12 +375,117 @@ const stackedDivergingAreas: TimeSeriesItem[] = [
   },
 ];
 
-// --- Playground ---
+// --- Heatmap data helpers ---
 
-export function ChartPg() {
+/** Reshape a flat 15-min signal array into data[day][slot] with day dates */
+function reshapeTo15min(
+  signal: number[],
+  startDate: Date,
+): { data: number[][]; days: Date[] } {
+  const slotsPerDay = 96;
+  const numDays = Math.floor(signal.length / slotsPerDay);
+  const days: Date[] = [];
+  const data: number[][] = [];
+
+  for (let d = 0; d < numDays; d++) {
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + d);
+    days.push(date);
+    data.push(signal.slice(d * slotsPerDay, (d + 1) * slotsPerDay));
+  }
+  return { data, days };
+}
+
+/** Reshape a flat 15-min signal into hourly averages per day */
+function reshapeToHourly(
+  signal: number[],
+  startDate: Date,
+): { data: number[][]; days: Date[] } {
+  const slotsPerDay = 96;
+  const numDays = Math.floor(signal.length / slotsPerDay);
+  const days: Date[] = [];
+  const data: number[][] = [];
+
+  for (let d = 0; d < numDays; d++) {
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + d);
+    days.push(date);
+    const hourly: number[] = [];
+    for (let h = 0; h < 24; h++) {
+      const base = d * slotsPerDay + h * 4;
+      let sum = 0;
+      for (let q = 0; q < 4; q++) sum += signal[base + q] ?? 0;
+      hourly.push(sum / 4);
+    }
+    data.push(hourly);
+  }
+  return { data, days };
+}
+
+const loadHourly = reshapeToHourly(loadData, DATA_START);
+const solarHourly = reshapeToHourly(solarData, DATA_START);
+const load15min = reshapeTo15min(loadData, DATA_START);
+const solar15min = reshapeTo15min(solarData, DATA_START);
+const grid15min = reshapeTo15min(gridData, DATA_START);
+
+// --- Tab helpers: sync active tab with URL search param ---
+
+const TAB_PARAM = "tab";
+const TABS = ["timeseries", "categorical", "heatmap"] as const;
+type Tab = (typeof TABS)[number];
+
+const TAB_LABELS: Record<Tab, string> = {
+  timeseries: "Time Series",
+  categorical: "Categorical",
+  heatmap: "Heat Map",
+};
+
+function getTabFromURL(): Tab {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get(TAB_PARAM);
+  if (raw && TABS.includes(raw as Tab)) return raw as Tab;
+  return TABS[0];
+}
+
+function setTabInURL(tab: Tab) {
+  const url = new URL(window.location.href);
+  url.searchParams.set(TAB_PARAM, tab);
+  window.history.replaceState(null, "", url.toString());
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function subscribeToURL(cb: () => void) {
+  window.addEventListener("popstate", cb);
+  return () => window.removeEventListener("popstate", cb);
+}
+
+const tabBarStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 0,
+  borderBottom: "2px solid #ddd",
+  marginBottom: 16,
+};
+
+function tabStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: "8px 20px",
+    cursor: "pointer",
+    fontWeight: active ? 600 : 400,
+    fontSize: 14,
+    color: active ? "#333" : "#888",
+    background: "none",
+    border: "none",
+    borderBottom: `2px solid ${active ? "#333" : "transparent"}`,
+    marginBottom: -2,
+  };
+}
+
+// --- Tab content components ---
+
+function TimeSeriesTab() {
   return (
-    <div>
-      <h2>Custom Y Domain (starts at 0)</h2>
+    <>
+      <h3>Custom Y Domain (starts at 0)</h3>
       <TimeSeriesChart
         title="Site Load (kW)"
         timeSeries={[{ legend: "Load", color: "#1f77b4", data: loadData }]}
@@ -390,7 +495,7 @@ export function ChartPg() {
         domain={[0]}
       />
 
-      <h2>Exceeded line</h2>
+      <h3>Exceeded line</h3>
       <TimeSeriesChart
         title="Battery SoC vs Min Threshold"
         timeSeries={[
@@ -415,7 +520,7 @@ export function ChartPg() {
         legendWidth={[120, 120]}
       />
 
-      <h2>Dual Y-Axis (secondUnit)</h2>
+      <h3>Dual Y-Axis (secondUnit)</h3>
       <TimeSeriesChart
         title="Solar Output vs Ambient Temperature"
         timeSeries={[
@@ -446,7 +551,65 @@ export function ChartPg() {
         legendWidth={[120, 120]}
       />
 
-      <h2>Categorical Charts (Monthly Aggregated)</h2>
+      <h3>Chart only (no legend)</h3>
+      <TimeSeriesChart
+        timeSeries={testTimeSeries}
+        time={testTime}
+        timeFormat={formatDate}
+        layoutRows={["chart"]}
+      />
+
+      <h3>Area and bars with mixed values</h3>
+      <TimeSeriesChart
+        title="Net Grid Flow & Battery Charge Cycles"
+        timeSeries={[...mixedAreaSeries, ...mixedBarsSeries].map((it) => {
+          it.data = it.data.slice(3000, 3100);
+          return it;
+        })}
+        time={testTime.slice(3000, 3100)}
+        unit="kW"
+        timeFormat={formatDate}
+        legendWidth={[120, 160]}
+        showAxis={true}
+      />
+
+      <h3>Stacked areas with line overlay</h3>
+      <TimeSeriesChart
+        title="Generation Sources vs Site Load"
+        timeSeries={stackedAreaWithLine.map((it) => {
+          it.data = it.data.slice(3000, 3100);
+          return it;
+        })}
+        time={testTime.slice(3000, 3100)}
+        unit="kW"
+        timeFormat={formatDate}
+        legendWidth={[80, 100, 100]}
+        showAxis={true}
+        stackedAreas={true}
+      />
+
+      <h3>Diverging stacked areas (positive/negative)</h3>
+      <TimeSeriesChart
+        title="Energy Balance: Generation vs Consumption"
+        timeSeries={stackedDivergingAreas.map((it) => {
+          it.data = it.data.slice(3000, 3100);
+          return it;
+        })}
+        time={testTime.slice(3000, 3100)}
+        unit="kW"
+        timeFormat={formatDate}
+        legendWidth={[80, 100, 100, 80]}
+        showAxis={true}
+        stackedAreas={true}
+      />
+    </>
+  );
+}
+
+function CategoricalTab() {
+  return (
+    <>
+      <h3>Monthly Energy Production</h3>
       <CategoricalChart
         title="Monthly Energy Production (MWh)"
         labels={monthLabels}
@@ -502,58 +665,82 @@ export function ChartPg() {
         unit="MWh"
         legendWidth={[80, 80, 80, 80]}
       />
+    </>
+  );
+}
 
-      <h3>Chart only (no legend)</h3>
-      <TimeSeriesChart
-        timeSeries={testTimeSeries}
-        time={testTime}
-        timeFormat={formatDate}
-        layoutRows={["chart"]}
+function HeatMapTab() {
+  return (
+    <>
+      <h3>Hourly resolution (24 rows)</h3>
+      <HeatMapChart
+        title="Site Load — Hourly"
+        data={loadHourly.data}
+        days={loadHourly.days}
+        colorRange={["#4575b4", "#d73027"]}
+        cellWidth={2}
+        cellHeight={4}
       />
 
-      <h3>Area and bars with mixed values</h3>
-      <TimeSeriesChart
-        title="Net Grid Flow & Battery Charge Cycles"
-        timeSeries={[...mixedAreaSeries, ...mixedBarsSeries].map((it) => {
-          it.data = it.data.slice(3000, 3100);
-          return it;
-        })}
-        time={testTime.slice(3000, 3100)}
-        unit="kW"
-        timeFormat={formatDate}
-        legendWidth={[120, 160]}
-        showAxis={true}
+      <h3>15-min resolution, full year (96 rows, 1px per slot)</h3>
+      <HeatMapChart
+        title="Site Load — 15 min"
+        data={load15min.data}
+        days={load15min.days}
+        colorRange={["#4575b4", "#d73027"]}
+        cellWidth={2}
+        cellHeight={1}
       />
 
-      <h3>Stacked areas with line overlay</h3>
-      <TimeSeriesChart
-        title="Generation Sources vs Site Load"
-        timeSeries={stackedAreaWithLine.map((it) => {
-          it.data = it.data.slice(3000, 3100);
-          return it;
-        })}
-        time={testTime.slice(3000, 3100)}
-        unit="kW"
-        timeFormat={formatDate}
-        legendWidth={[80, 100, 100]}
-        showAxis={true}
-        stackedAreas={true}
+      <HeatMapChart
+        title="Solar Output — 15 min"
+        data={solar15min.data}
+        days={solar15min.days}
+        colorRange={["#ffffcc", "#f9a825"]}
+        cellWidth={2}
+        cellHeight={1}
       />
 
-      <h3>Diverging stacked areas (positive/negative)</h3>
-      <TimeSeriesChart
-        title="Energy Balance: Generation vs Consumption"
-        timeSeries={stackedDivergingAreas.map((it) => {
-          it.data = it.data.slice(3000, 3100);
-          return it;
-        })}
-        time={testTime.slice(3000, 3100)}
-        unit="kW"
-        timeFormat={formatDate}
-        legendWidth={[80, 100, 100, 80]}
-        showAxis={true}
-        stackedAreas={true}
+      <HeatMapChart
+        title="Grid Consumption — 15 min"
+        data={grid15min.data}
+        days={grid15min.days}
+        colorRange={["#e8f5e9", "#e53935"]}
+        cellWidth={2}
+        cellHeight={1}
       />
+
+      <h3>Hourly solar</h3>
+      <HeatMapChart
+        title="Solar Output — Hourly"
+        data={solarHourly.data}
+        days={solarHourly.days}
+        colorRange={["#ffffcc", "#f9a825"]}
+        cellWidth={2}
+        cellHeight={4}
+      />
+    </>
+  );
+}
+
+// --- Playground ---
+
+export function ChartPg() {
+  const tab = useSyncExternalStore(subscribeToURL, getTabFromURL);
+  const setTab = useCallback((t: Tab) => setTabInURL(t), []);
+
+  return (
+    <div>
+      <div style={tabBarStyle}>
+        {TABS.map((t) => (
+          <button key={t} style={tabStyle(t === tab)} onClick={() => setTab(t)}>
+            {TAB_LABELS[t]}
+          </button>
+        ))}
+      </div>
+      {tab === "timeseries" && <TimeSeriesTab />}
+      {tab === "categorical" && <CategoricalTab />}
+      {tab === "heatmap" && <HeatMapTab />}
     </div>
   );
 }
