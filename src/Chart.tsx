@@ -128,7 +128,7 @@ const TITLE = {
 };
 
 const CHART = {
-  width: 500,
+  width: 1200,
   height: 100,
   lineWidth: 2,
   lineCap: "round" as const,
@@ -1204,7 +1204,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
             layout={layout}
             xScale={xScale}
             timeFormat={timeFormat}
-            tickCount={7}
+            tickCount={12}
           />
         </>
       )}

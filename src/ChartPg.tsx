@@ -7,6 +7,7 @@ import {
   type TimeSeriesItem,
   type CategoricalSeriesItem,
 } from "./Chart";
+import { ExplorerTab } from "./ExplorerTab";
 
 // --- Seeded random for reproducible mock data ---
 
@@ -499,10 +500,11 @@ const gridWeekly = reshapeToWeekly(gridData, DATA_START);
 // --- Tab helpers: sync active tab with URL search param ---
 
 const TAB_PARAM = "tab";
-const TABS = ["timeseries", "categorical", "heatmap"] as const;
+const TABS = ["explorer", "timeseries", "categorical", "heatmap"] as const;
 type Tab = (typeof TABS)[number];
 
 const TAB_LABELS: Record<Tab, string> = {
+  explorer: "Explorer",
   timeseries: "Time Series",
   categorical: "Categorical",
   heatmap: "Heat Map",
@@ -837,6 +839,7 @@ export function ChartPg() {
           </button>
         ))}
       </div>
+      {tab === "explorer" && <ExplorerTab />}
       {tab === "timeseries" && <TimeSeriesTab />}
       {tab === "categorical" && <CategoricalTab />}
       {tab === "heatmap" && <HeatMapTab />}
