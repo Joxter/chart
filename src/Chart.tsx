@@ -56,7 +56,13 @@
  */
 
 import * as d3 from "d3";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { domainForStackedBars, minMax, minMaxArr } from "./utils.ts";
 
 export type TimeSeriesItem = {
@@ -73,9 +79,7 @@ export type TimeSeriesClickEvent = {
   values: { legend: string; value: number | null }[];
 };
 
-export type HighlightPeriod =
-  | { date: Date }
-  | { from: Date; to: Date };
+export type HighlightPeriod = { date: Date } | { from: Date; to: Date };
 
 export type TimeSeriesChartProps = {
   title?: string | null;
@@ -602,7 +606,7 @@ function AxisX({
   );
 }
 
-function ChartLines({
+const ChartLines = React.memo(function ChartLines({
   timeSeries,
   time,
   layout,
@@ -722,9 +726,9 @@ function ChartLines({
       {lines}
     </g>
   );
-}
+});
 
-function StackedAreas({
+const StackedAreas = React.memo(function StackedAreas({
   areaSeries,
   time,
   layout,
@@ -785,7 +789,7 @@ function StackedAreas({
       {exceededMaskId && renderLayers(exceededMaskId)}
     </g>
   );
-}
+});
 
 function CategoricalAxisX({
   layout,
@@ -1110,80 +1114,104 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
   const exceededMaskId = exceededSeries ? "exceeded-mask" : "";
 
   const secondarySeries = timeSeries.find((s) => s.secondUnit) ?? null;
-  const primarySeries = timeSeries.filter((s) => !s.secondUnit);
+  const primarySeries = useMemo(
+    () => timeSeries.filter((s) => !s.secondUnit),
+    [timeSeries],
+  );
 
   // exceeded is treated as a line for rendering, so include it in nonAreaSeries
-  const areaSeries = primarySeries.filter((s) => s.variant === "area");
-  const nonAreaSeries = primarySeries.filter((s) => s.variant !== "area");
+  const areaSeries = useMemo(
+    () => primarySeries.filter((s) => s.variant === "area"),
+    [primarySeries],
+  );
+  const nonAreaSeries = useMemo(
+    () => primarySeries.filter((s) => s.variant !== "area"),
+    [primarySeries],
+  );
 
-  const layout = calculateLayout({
-    ...props,
-    seriesCount: timeSeries.length,
-    chartWidth: CHART.width,
-    hasRightAxis: !!secondarySeries,
-  });
+  const layout = useMemo(
+    () =>
+      calculateLayout({
+        ...props,
+        seriesCount: timeSeries.length,
+        chartWidth: CHART.width,
+        hasRightAxis: !!secondarySeries,
+      }),
+    [
+      title,
+      showAxis,
+      legendWidth,
+      timeSeries.length,
+      !!secondarySeries,
+      props.layoutRows,
+    ],
+  );
 
-  let [yMin, yMax] =
-    stackedAreas && areaSeries.length > 0
-      ? minMaxArr([
-          ...nonAreaSeries.map((it) => it.data),
-          domainForStackedBars(areaSeries.map((it) => it.data)),
-        ])
-      : minMaxArr(primarySeries.map((it) => it.data));
+  const xScale = useMemo(() => {
+    if (time.length === 0) return d3.scaleTime().range([0, 0]);
+    return d3
+      .scaleTime()
+      .domain(d3.extent(time) as [Date, Date])
+      .range([CHART.inset.left, CHART.width - CHART.inset.right]);
+  }, [time]);
 
-  if (domain) {
-    [yMin, yMax] = minMax([yMin, yMax, ...domain]);
-  }
+  const yScale: YScale = useMemo(() => {
+    let [yMin, yMax] =
+      stackedAreas && areaSeries.length > 0
+        ? minMaxArr([
+            ...nonAreaSeries.map((it) => it.data),
+            domainForStackedBars(areaSeries.map((it) => it.data)),
+          ])
+        : minMaxArr(primarySeries.map((it) => it.data));
 
-  const hasNegative = yMin < 0;
-  const bottomInset = hasNegative ? CHART.inset.bottom : 0;
+    if (domain) {
+      [yMin, yMax] = minMax([yMin, yMax, ...domain]);
+    }
 
-  const xScale = d3
-    .scaleTime()
-    .domain(d3.extent(time) as [Date, Date])
-    .range([CHART.inset.left, CHART.width - CHART.inset.right]);
+    const bottomInset = yMin < 0 ? CHART.inset.bottom : 0;
 
-  const yScale: YScale = d3
-    .scaleLinear()
-    .domain([yMax, yMin])
-    .nice()
-    .range([CHART.inset.top, CHART.height - bottomInset]);
+    return d3
+      .scaleLinear()
+      .domain([yMax, yMin])
+      .nice()
+      .range([CHART.inset.top, CHART.height - bottomInset]);
+  }, [primarySeries, areaSeries, nonAreaSeries, stackedAreas, domain]);
 
-  let yScaleRight: YScale | null = null;
-  if (secondarySeries) {
+  const yScaleRight: YScale | null = useMemo(() => {
+    if (!secondarySeries) return null;
     const [secMin, secMax] = minMax(secondarySeries.data);
     const secBottomInset = secMin < 0 ? CHART.inset.bottom : 0;
 
-    yScaleRight = d3
+    return d3
       .scaleLinear()
       .domain([secMax, secMin])
       .nice()
       .range([CHART.inset.top, CHART.height - secBottomInset]);
-  }
+  }, [secondarySeries]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    const svg = svgRef.current;
-    if (!svg || !layout.chart) return;
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      const svg = svgRef.current;
+      if (!svg || !layout.chart) return;
 
-    const bisector = d3.bisector<Date, Date>((d) => d).left;
+      const rect = svg.getBoundingClientRect();
+      const mouseX =
+        ((e.clientX - rect.left) / rect.width) * layout.totalWidth -
+        layout.chart.x;
 
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    const svgP = pt.matrixTransform(svg.getScreenCTM()!.inverse());
-    const mouseX = svgP.x - layout.chart.x;
-
-    const hoveredDate = xScale.invert(mouseX);
-    let idx = bisector(time, hoveredDate);
-    // snap to nearest
-    if (idx > 0 && idx < time.length) {
-      const d0 = time[idx - 1];
-      const d1 = time[idx];
-      if (!(+hoveredDate - +d0 > +d1 - +hoveredDate)) idx = idx - 1;
-    }
-    idx = Math.max(0, Math.min(time.length - 1, idx));
-    setHoveredIndex(idx);
-  }, []);
+      const hoveredDate = xScale.invert(mouseX);
+      const bisector = d3.bisector<Date, Date>((d) => d).left;
+      let idx = bisector(time, hoveredDate);
+      if (idx > 0 && idx < time.length) {
+        const d0 = time[idx - 1];
+        const d1 = time[idx];
+        if (!(+hoveredDate - +d0 > +d1 - +hoveredDate)) idx = idx - 1;
+      }
+      idx = Math.max(0, Math.min(time.length - 1, idx));
+      setHoveredIndex(idx);
+    },
+    [layout, xScale, time],
+  );
 
   const handleMouseLeave = useCallback(() => {
     setHoveredIndex(null);
@@ -1211,92 +1239,122 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       ? layout.chart.x + xScale(time[hoveredIndex])
       : null;
 
+  const svgStyle = useMemo(
+    () => ({
+      width: layout.totalWidth,
+      height: layout.totalHeight,
+    }),
+    [layout.totalWidth, layout.totalHeight],
+  );
+
   return (
-    <svg
-      ref={svgRef}
-      width={layout.totalWidth}
-      height={layout.totalHeight}
-      style={{ backgroundColor: "#fff" }}
-      xmlns="http://www.w3.org/2000/svg"
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      onClick={handleClick}
-    >
-      {exceededMaskId && exceededSeries && (
-        <defs>
-          <ExceededMask
-            maskId={exceededMaskId}
-            exceededSeries={exceededSeries}
+    <div style={{ position: "relative", ...svgStyle }}>
+      {/* Static layer — only re-renders when data/config changes */}
+      <svg
+        width={layout.totalWidth}
+        height={layout.totalHeight}
+        style={{ backgroundColor: "#fff" }}
+        xmlns="http://www.w3.org/2000/svg"
+        pointerEvents="none"
+      >
+        {exceededMaskId && exceededSeries && (
+          <defs>
+            <ExceededMask
+              maskId={exceededMaskId}
+              exceededSeries={exceededSeries}
+              time={time}
+              layout={layout}
+              xScale={xScale}
+              yScale={yScale}
+            />
+          </defs>
+        )}
+        {title && <ChartTitle title={title} layout={layout} />}
+        {showAxis && <GridLines layout={layout} yScale={yScale} />}
+        {highlights && highlights.length > 0 && (
+          <HighlightPeriods
+            highlights={highlights}
+            layout={layout}
+            xScale={xScale}
+          />
+        )}
+        {stackedAreas && (
+          <StackedAreas
+            areaSeries={areaSeries}
             time={time}
             layout={layout}
             xScale={xScale}
             yScale={yScale}
+            exceededMaskId={exceededMaskId}
           />
-        </defs>
-      )}
-      {title && <ChartTitle title={title} layout={layout} />}
-      {showAxis && <GridLines layout={layout} yScale={yScale} />}
-      {highlights && highlights.length > 0 && (
-        <HighlightPeriods highlights={highlights} layout={layout} xScale={xScale} />
-      )}
-      {stackedAreas && (
-        <StackedAreas
-          areaSeries={areaSeries}
+        )}
+        <ChartLines
+          timeSeries={stackedAreas ? nonAreaSeries : primarySeries}
           time={time}
           layout={layout}
           xScale={xScale}
           yScale={yScale}
           exceededMaskId={exceededMaskId}
         />
-      )}
-      <ChartLines
-        timeSeries={stackedAreas ? nonAreaSeries : primarySeries}
-        time={time}
-        layout={layout}
-        xScale={xScale}
-        yScale={yScale}
-        exceededMaskId={exceededMaskId}
-      />
-      {secondarySeries && yScaleRight && (
-        <ChartLines
-          timeSeries={[secondarySeries]}
-          time={time}
-          layout={layout}
-          xScale={xScale}
-          yScale={yScaleRight}
-        />
-      )}
-      {showAxis && (
-        <>
-          <AxisY layout={layout} yScale={yScale} unit={unit} />
-          {secondarySeries && yScaleRight && (
-            <AxisY
-              layout={layout}
-              yScale={yScaleRight}
-              unit={secondarySeries.secondUnit}
-              side="right"
-            />
-          )}
-          <AxisX
+        {secondarySeries && yScaleRight && (
+          <ChartLines
+            timeSeries={[secondarySeries]}
+            time={time}
             layout={layout}
             xScale={xScale}
-            timeFormat={timeFormat}
-            tickCount={12}
+            yScale={yScaleRight}
           />
-        </>
-      )}
-      <Crosshair
-        x={hoveredX}
-        label={hoveredIndex != null ? timeFormat(time[hoveredIndex]) : null}
-        layout={layout}
-      />
-      <ChartLegend
-        items={timeSeries}
-        legendWidth={legendWidth}
-        layout={layout}
-        hoveredValues={hoveredValues}
-      />
-    </svg>
+        )}
+        {showAxis && (
+          <>
+            <AxisY layout={layout} yScale={yScale} unit={unit} />
+            {secondarySeries && yScaleRight && (
+              <AxisY
+                layout={layout}
+                yScale={yScaleRight}
+                unit={secondarySeries.secondUnit}
+                side="right"
+              />
+            )}
+            <AxisX
+              layout={layout}
+              xScale={xScale}
+              timeFormat={timeFormat}
+              tickCount={12}
+            />
+          </>
+        )}
+        {/* Static legend (no hover values) */}
+        <ChartLegend
+          items={timeSeries}
+          legendWidth={legendWidth}
+          layout={layout}
+        />
+      </svg>
+      {/* Interactive overlay — re-renders on hover, cheap to repaint */}
+      <svg
+        ref={svgRef}
+        width={layout.totalWidth}
+        height={layout.totalHeight}
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ position: "absolute", top: 0, left: 0 }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
+      >
+        <Crosshair
+          x={hoveredX}
+          label={hoveredIndex != null ? timeFormat(time[hoveredIndex]) : null}
+          layout={layout}
+        />
+        <ChartLegend
+          items={timeSeries}
+          legendWidth={legendWidth}
+          layout={layout}
+          hoveredValues={hoveredValues}
+        />
+      </svg>
+    </div>
   );
 }
 

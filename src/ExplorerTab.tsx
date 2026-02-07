@@ -6,6 +6,7 @@ import {
   HeatMapChart,
   type TimeSeriesItem,
   type TimeSeriesClickEvent,
+  type HighlightPeriod,
 } from "./Chart";
 
 const DATA_FILES = [
@@ -355,6 +356,13 @@ function ChartCard({
     };
   }, [selectedDay, data, config.selected, variant, time]);
 
+  const highlights = useMemo<HighlightPeriod[] | undefined>(() => {
+    if (!selectedDay) return undefined;
+    const dayStart = DateTime.fromJSDate(selectedDay).startOf("day");
+    const dayEnd = dayStart.plus({ days: 1 });
+    return [{ from: dayStart.toJSDate(), to: dayEnd.toJSDate() }];
+  }, [selectedDay]);
+
   if (!data)
     return <div style={{ padding: 16, color: "#999" }}>Loading...</div>;
 
@@ -390,6 +398,7 @@ function ChartCard({
               legendWidth={[200]}
               unit=""
               onClick={handleChartClick}
+              highlights={highlights}
             />
           </div>
           {daySlice && (
