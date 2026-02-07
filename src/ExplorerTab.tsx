@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import * as d3 from "d3";
-import { TimeSeriesChart, type TimeSeriesItem } from "./Chart";
+import { TimeSeriesChart, HeatMapChart, type TimeSeriesItem } from "./Chart";
 
 const DATA_FILES = [
   "calc_15min_consumption_2024.json",
@@ -46,6 +46,7 @@ export function ExplorerTab() {
   const [data, setData] = useState<ColumnarData | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [variant, setVariant] = useState<Variant>("line");
+  const [heatmapMode, setHeatmapMode] = useState<"day" | "week">("day");
 
   // Load file
   useEffect(() => {
@@ -142,6 +143,29 @@ export function ExplorerTab() {
             </label>
           ))}
         </fieldset>
+
+        {/* Heatmap mode */}
+        <fieldset style={{ border: "none", padding: 0 }}>
+          <legend style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+            Heatmap
+          </legend>
+          {(["day", "week"] as const).map((m) => (
+            <label
+              key={m}
+              style={{ marginRight: 12, fontSize: 13, cursor: "pointer" }}
+            >
+              <input
+                type="radio"
+                name="heatmapMode"
+                value={m}
+                checked={heatmapMode === m}
+                onChange={() => setHeatmapMode(m)}
+                style={{ marginRight: 4 }}
+              />
+              {m}
+            </label>
+          ))}
+        </fieldset>
       </div>
 
       {/* Column checkboxes */}
@@ -188,6 +212,47 @@ export function ExplorerTab() {
           />
         </div>
       )}
+
+      {/* Heatmaps */}
+      {selected.length > 0 &&
+        time.length > 0 &&
+        selected.map((col, i) => {
+          const values = data![col] as number[];
+          const color = COLORS[i % COLORS.length];
+
+          if (heatmapMode === "week") {
+            const wk = reshapeForWeeklyHeatmap(values, time);
+            if (!wk) return null;
+            return (
+              <div key={col} className="chart-section">
+                <HeatMapChart
+                  title={col}
+                  data={wk.data}
+                  xLabels={wk.xLabels}
+                  yLabels={wk.yLabels}
+                  colorRange={["#ffffff", color]}
+                  cellWidth={wk.cellWidth}
+                  cellHeight={wk.cellHeight}
+                />
+              </div>
+            );
+          }
+
+          const hm = reshapeForDayHeatmap(values, time);
+          if (!hm) return null;
+          return (
+            <div key={col} className="chart-section">
+              <HeatMapChart
+                title={col}
+                data={hm.data}
+                days={hm.days}
+                colorRange={["#ffffff", color]}
+                cellWidth={hm.cellWidth}
+                cellHeight={hm.cellHeight}
+              />
+            </div>
+          );
+        })}
     </div>
   );
 }
@@ -199,6 +264,119 @@ function numericColumns(data: ColumnarData): string[] {
       Array.isArray(data[k]) &&
       typeof data[k][0] === "number",
   );
+}
+
+/** Detect the interval in minutes between consecutive timestamps */
+function detectIntervalMinutes(time: Date[]): number {
+  if (time.length < 2) return 0;
+  const diffs: number[] = [];
+  for (let i = 1; i < Math.min(time.length, 10); i++) {
+    diffs.push((time[i].getTime() - time[i - 1].getTime()) / 60000);
+  }
+  return Math.round(d3.median(diffs)!);
+}
+
+/** Reshape into data[day][slot] — X = days, Y = time-of-day */
+function reshapeForDayHeatmap(
+  values: number[],
+  time: Date[],
+): {
+  data: number[][];
+  days: Date[];
+  cellWidth: number;
+  cellHeight: number;
+} | null {
+  const interval = detectIntervalMinutes(time);
+  if (interval <= 0) return null;
+
+  const slotsPerDay = Math.round((24 * 60) / interval);
+  if (slotsPerDay < 4 || values.length < slotsPerDay * 2) return null;
+
+  const numDays = Math.floor(values.length / slotsPerDay);
+  const startDate = time[0];
+  const days: Date[] = [];
+  const data: number[][] = [];
+
+  for (let d = 0; d < numDays; d++) {
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + d);
+    days.push(date);
+    data.push(values.slice(d * slotsPerDay, (d + 1) * slotsPerDay));
+  }
+
+  const cellHeight = slotsPerDay <= 24 ? 4 : slotsPerDay <= 48 ? 2 : 1;
+  const cellWidth = numDays > 200 ? 2 : numDays > 60 ? 3 : 5;
+
+  return { data, days, cellWidth, cellHeight };
+}
+
+/**
+ * Reshape into weekly grid — X = Mon–Sun (with intra-day resolution), Y = week number.
+ * data[weekSlot][weekIndex] where weekSlot = dow * slotsPerDay + slotInDay.
+ */
+function reshapeForWeeklyHeatmap(
+  values: number[],
+  time: Date[],
+): {
+  data: number[][];
+  xLabels: { col: number; label: string }[];
+  yLabels: { row: number; label: string }[];
+  cellWidth: number;
+  cellHeight: number;
+} | null {
+  const interval = detectIntervalMinutes(time);
+  if (interval <= 0) return null;
+
+  const slotsPerDay = Math.round((24 * 60) / interval);
+  if (slotsPerDay < 4 || values.length < slotsPerDay * 2) return null;
+
+  const totalDays = Math.floor(values.length / slotsPerDay);
+  const startDate = time[0];
+  const startDow = (startDate.getDay() + 6) % 7; // Mon=0
+  const totalWeeks = Math.ceil((totalDays + startDow) / 7);
+  const weekCols = 7 * slotsPerDay;
+
+  // data[weekSlot][weekIndex]
+  const data: number[][] = Array.from({ length: weekCols }, () =>
+    Array(totalWeeks).fill(NaN),
+  );
+
+  for (let d = 0; d < totalDays; d++) {
+    const dow = (d + startDow) % 7;
+    const week = Math.floor((d + startDow) / 7);
+    const srcBase = d * slotsPerDay;
+    const colBase = dow * slotsPerDay;
+    for (let s = 0; s < slotsPerDay; s++) {
+      data[colBase + s][week] = values[srcBase + s] ?? NaN;
+    }
+  }
+
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const xLabels = dayNames.map((label, i) => ({
+    col: i * slotsPerDay,
+    label,
+  }));
+
+  // Y labels: month boundaries mapped to week rows
+  const yLabels: { row: number; label: string }[] = [];
+  const fmt = d3.timeFormat("%b");
+  for (let m = 0; m < 24; m++) {
+    const year = startDate.getFullYear() + Math.floor(m / 12);
+    const month = m % 12;
+    const mDate = new Date(year, month, 1);
+    const diffDays = Math.round(
+      (mDate.getTime() - startDate.getTime()) / 86400000,
+    );
+    if (diffDays >= 0 && diffDays < totalDays) {
+      const week = Math.floor((diffDays + startDow) / 7);
+      yLabels.push({ row: week, label: fmt(mDate) });
+    }
+  }
+
+  const cellWidth = 1;
+  const cellHeight = totalWeeks > 30 ? 2 : 3;
+
+  return { data, xLabels, yLabels, cellWidth, cellHeight };
 }
 
 const labelStyle: React.CSSProperties = {
