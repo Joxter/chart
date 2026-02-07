@@ -6,6 +6,7 @@ import {
   HeatMapChart,
   type TimeSeriesItem,
   type CategoricalSeriesItem,
+  type HighlightPeriod,
 } from "./Chart";
 import { ExplorerTab } from "./ExplorerTab";
 
@@ -552,20 +553,38 @@ function tabStyle(active: boolean): React.CSSProperties {
 
 // --- Tab content components ---
 
+const sampleHighlightDates: HighlightPeriod[] = [
+  { date: new Date("2024-06-01") },
+  { date: new Date("2024-09-01") },
+  { date: new Date("2024-12-01") },
+];
+
+const sampleHighlightRanges: HighlightPeriod[] = [
+  { from: new Date("2024-07-15"), to: new Date("2024-08-15") },
+  { from: new Date("2024-12-20"), to: new Date("2025-01-05") },
+];
+
+const sampleHighlightsMixed: HighlightPeriod[] = [
+  { date: new Date("2024-05-01") },
+  { from: new Date("2024-06-15"), to: new Date("2024-07-15") },
+  { date: new Date("2024-10-01") },
+  { from: new Date("2024-11-01"), to: new Date("2024-11-30") },
+];
+
 function TimeSeriesTab() {
   return (
     <>
-      <h3>Custom Y Domain (starts at 0)</h3>
+      <h3>Highlight periods — date lines</h3>
       <TimeSeriesChart
-        title="Site Load (kW)"
         timeSeries={[{ legend: "Load", color: "#1f77b4", data: loadData }]}
         time={testTime}
         timeFormat={formatDate}
         legendWidth={[120]}
         domain={[0]}
+        highlights={sampleHighlightDates}
       />
 
-      <h3>Exceeded line</h3>
+      <h3>Highlight periods — ranges</h3>
       <TimeSeriesChart
         title="Battery SoC vs Min Threshold"
         timeSeries={[
@@ -588,6 +607,7 @@ function TimeSeriesTab() {
         unit="%"
         timeFormat={formatDate}
         legendWidth={[120, 120]}
+        highlights={sampleHighlightsMixed}
       />
 
       <h3>Dual Y-Axis (secondUnit)</h3>

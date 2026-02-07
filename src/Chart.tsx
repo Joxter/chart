@@ -73,6 +73,10 @@ export type TimeSeriesClickEvent = {
   values: { legend: string; value: number | null }[];
 };
 
+export type HighlightPeriod =
+  | { date: Date }
+  | { from: Date; to: Date };
+
 export type TimeSeriesChartProps = {
   title?: string | null;
   timeSeries: TimeSeriesItem[];
@@ -85,6 +89,7 @@ export type TimeSeriesChartProps = {
   unit?: string;
   domain?: number[];
   onClick?: (event: TimeSeriesClickEvent) => void;
+  highlights?: HighlightPeriod[];
 };
 
 export type CategoricalSeriesItem = {
@@ -980,6 +985,53 @@ function CategoricalLines({
   );
 }
 
+function HighlightPeriods({
+  highlights,
+  layout,
+  xScale,
+}: {
+  highlights: HighlightPeriod[];
+  layout: Layout;
+  xScale: XScale;
+}) {
+  if (!layout.chart) return null;
+  const { x: offsetX, y: offsetY, height: chartH } = layout.chart;
+  const color = "#0004";
+
+  return (
+    <g className="highlights" pointerEvents="none">
+      {highlights.map((h, i) => {
+        if ("date" in h) {
+          const x = offsetX + xScale(h.date);
+          return (
+            <line
+              key={i}
+              x1={x}
+              y1={offsetY}
+              x2={x}
+              y2={offsetY + chartH}
+              stroke={color}
+              strokeWidth={1}
+            />
+          );
+        }
+        const x1 = offsetX + xScale(h.from);
+        const x2 = offsetX + xScale(h.to);
+        return (
+          <rect
+            key={i}
+            x={x1}
+            y={offsetY}
+            width={x2 - x1}
+            height={chartH}
+            fill={color}
+          />
+        );
+      })}
+    </g>
+  );
+}
+
 function Crosshair({
   x,
   label,
@@ -1046,6 +1098,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     unit,
     domain,
     onClick,
+    highlights,
   } = props;
   const showAxis = props.showAxis ?? true;
 
@@ -1183,6 +1236,9 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       )}
       {title && <ChartTitle title={title} layout={layout} />}
       {showAxis && <GridLines layout={layout} yScale={yScale} />}
+      {highlights && highlights.length > 0 && (
+        <HighlightPeriods highlights={highlights} layout={layout} xScale={xScale} />
+      )}
       {stackedAreas && (
         <StackedAreas
           areaSeries={areaSeries}
