@@ -70,7 +70,9 @@ export function ExplorerTab() {
   const [data, setData] = useState<ColumnarData | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [variant, setVariant] = useState<Variant>(saved.variant ?? "line");
-  const [heatmapMode, setHeatmapMode] = useState<"day" | "week">(saved.heatmapMode ?? "day");
+  const [heatmapMode, setHeatmapMode] = useState<"day" | "week">(
+    saved.heatmapMode ?? "day",
+  );
 
   // Persist to localStorage
   useEffect(() => {
@@ -80,15 +82,17 @@ export function ExplorerTab() {
   // Load file
   useEffect(() => {
     setData(null);
+    setSelected([]);
     fetch(`/${file}`)
       .then((r) => r.json())
       .then((d: ColumnarData) => {
         setData(d);
         // Restore saved columns if they exist in the new file, otherwise auto-select
         const cols = numericColumns(d);
-        const restored = saved.file === file && saved.selected
-          ? saved.selected.filter((c) => cols.includes(c))
-          : [];
+        const restored =
+          saved.file === file && saved.selected
+            ? saved.selected.filter((c) => cols.includes(c))
+            : [];
         setSelected(restored.length > 0 ? restored : cols.slice(0, 3));
       });
   }, [file]);
@@ -405,7 +409,6 @@ function reshapeForDayHeatmap(
   if (slotsPerDay < 4 || time.length < slotsPerDay * 2) return null;
 
   const daySlices = sliceByDay(time);
-  console.log(daySlices);
   if (daySlices.length < 2) return null;
 
   const days: Date[] = [];

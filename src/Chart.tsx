@@ -67,6 +67,12 @@ export type TimeSeriesItem = {
   data: number[];
 };
 
+export type TimeSeriesClickEvent = {
+  index: number;
+  time: Date;
+  values: { legend: string; value: number | null }[];
+};
+
 export type TimeSeriesChartProps = {
   title?: string | null;
   timeSeries: TimeSeriesItem[];
@@ -78,6 +84,7 @@ export type TimeSeriesChartProps = {
   layoutRows?: ("title" | "legend" | "chart")[];
   unit?: string;
   domain?: number[];
+  onClick?: (event: TimeSeriesClickEvent) => void;
 };
 
 export type CategoricalSeriesItem = {
@@ -1038,6 +1045,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     stackedAreas,
     unit,
     domain,
+    onClick,
   } = props;
   const showAxis = props.showAxis ?? true;
 
@@ -1128,6 +1136,18 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
     setHoveredIndex(null);
   }, []);
 
+  const handleClick = useCallback(() => {
+    if (hoveredIndex == null || !onClick) return;
+    onClick({
+      index: hoveredIndex,
+      time: time[hoveredIndex],
+      values: timeSeries.map((s) => ({
+        legend: s.legend,
+        value: s.data[hoveredIndex] ?? null,
+      })),
+    });
+  }, [hoveredIndex, onClick, time, timeSeries]);
+
   const hoveredValues =
     hoveredIndex != null
       ? timeSeries.map((s) => s.data[hoveredIndex] ?? null)
@@ -1147,6 +1167,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       xmlns="http://www.w3.org/2000/svg"
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
     >
       {exceededMaskId && exceededSeries && (
         <defs>
