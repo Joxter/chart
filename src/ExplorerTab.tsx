@@ -26,9 +26,21 @@ const DATA_FILES = [
 ];
 
 const COLORS = [
-  "#e53935", "#1e88e5", "#43a047", "#f9a825", "#8e24aa",
-  "#00acc1", "#ff7043", "#5c6bc0", "#d81b60", "#2ca02c",
-  "#17becf", "#ff7f0e", "#9467bd", "#bcbd22", "#7f7f7f",
+  "#e53935",
+  "#1e88e5",
+  "#43a047",
+  "#f9a825",
+  "#8e24aa",
+  "#00acc1",
+  "#ff7043",
+  "#5c6bc0",
+  "#d81b60",
+  "#2ca02c",
+  "#17becf",
+  "#ff7f0e",
+  "#9467bd",
+  "#bcbd22",
+  "#7f7f7f",
 ];
 
 type ChartType = "lines" | "area" | "heatmap-day" | "heatmap-week";
@@ -131,30 +143,50 @@ function ConfigEditor({
 
   return (
     <div style={editorStyle}>
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 24,
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
         {/* File select */}
         <label style={labelStyle}>
           File
           <select
             value={draft.file}
-            onChange={(e) => setDraft((prev) => ({ ...prev, file: e.target.value }))}
+            onChange={(e) =>
+              setDraft((prev) => ({ ...prev, file: e.target.value }))
+            }
             style={selectStyle}
           >
             {DATA_FILES.map((f) => (
-              <option key={f} value={f}>{f.replace(".json", "")}</option>
+              <option key={f} value={f}>
+                {f.replace(".json", "")}
+              </option>
             ))}
           </select>
         </label>
 
         {/* Chart type */}
         <fieldset style={{ border: "none", padding: 0 }}>
-          <legend style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Chart type</legend>
+          <legend style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+            Chart type
+          </legend>
           {(Object.keys(CHART_TYPE_LABELS) as ChartType[]).map((ct) => (
-            <label key={ct} style={{ marginRight: 12, fontSize: 13, cursor: "pointer" }}>
+            <label
+              key={ct}
+              style={{ marginRight: 12, fontSize: 13, cursor: "pointer" }}
+            >
               <input
-                type="radio" name={`chartType-${draft.id}`} value={ct}
+                type="radio"
+                name={`chartType-${draft.id}`}
+                value={ct}
                 checked={draft.chartType === ct}
-                onChange={() => setDraft((prev) => ({ ...prev, chartType: ct }))}
+                onChange={() =>
+                  setDraft((prev) => ({ ...prev, chartType: ct }))
+                }
                 style={{ marginRight: 4 }}
               />
               {CHART_TYPE_LABELS[ct]}
@@ -173,18 +205,27 @@ function ConfigEditor({
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
             {columns.map((col) => (
-              <label key={col} style={{ fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+              <label
+                key={col}
+                style={{
+                  fontSize: 13,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={draft.selected.includes(col)}
                   onChange={() => toggleColumn(col)}
                   style={{ marginRight: 4 }}
                 />
-                <span style={{
-                  color: draft.selected.includes(col)
-                    ? COLORS[draft.selected.indexOf(col) % COLORS.length]
-                    : "#666",
-                }}>
+                <span
+                  style={{
+                    color: draft.selected.includes(col)
+                      ? COLORS[draft.selected.indexOf(col) % COLORS.length]
+                      : "#666",
+                  }}
+                >
                   {col}
                 </span>
               </label>
@@ -195,13 +236,20 @@ function ConfigEditor({
 
       {/* Buttons */}
       <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-        <button style={btnPrimary} onClick={() => onApply(draft)}
-          disabled={draft.selected.length === 0}>
+        <button
+          style={btnPrimary}
+          onClick={() => onApply(draft)}
+          disabled={draft.selected.length === 0}
+        >
           Apply
         </button>
-        <button style={btnSecondary} onClick={onCancel}>Cancel</button>
+        <button style={btnSecondary} onClick={onCancel}>
+          Cancel
+        </button>
         {onDelete && (
-          <button style={btnDanger} onClick={onDelete}>Delete</button>
+          <button style={btnDanger} onClick={onDelete}>
+            Delete
+          </button>
         )}
       </div>
     </div>
@@ -224,7 +272,8 @@ function ChartCard({
   const [data, setData] = useState<ColumnarData | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const variant = config.chartType === "area" ? "area" : "line";
-  const isHeatmap = config.chartType === "heatmap-day" || config.chartType === "heatmap-week";
+  const isHeatmap =
+    config.chartType === "heatmap-day" || config.chartType === "heatmap-week";
 
   useEffect(() => {
     setData(null);
@@ -258,8 +307,34 @@ function ChartCard({
     setSelectedDay(e.time);
   }, []);
 
+  const days = useMemo(() => {
+    if (time.length === 0) return [];
+    return sliceByDay(time).map((s) => s.dayStart);
+  }, [time]);
+
+  const selectedDayIdx = useMemo(() => {
+    if (!selectedDay || days.length === 0) return -1;
+    const target = DateTime.fromJSDate(selectedDay).startOf("day").toMillis();
+    return days.findIndex((d) => d.toMillis() === target);
+  }, [selectedDay, days]);
+
+  const goDay = useCallback(
+    (delta: number) => {
+      const next = selectedDayIdx + delta;
+      if (next >= 0 && next < days.length) {
+        setSelectedDay(days[next].toJSDate());
+      }
+    },
+    [selectedDayIdx, days],
+  );
+
   const daySlice = useMemo(() => {
-    if (!selectedDay || !data || config.selected.length === 0 || time.length === 0)
+    if (
+      !selectedDay ||
+      !data ||
+      config.selected.length === 0 ||
+      time.length === 0
+    )
       return null;
     const dayStart = DateTime.fromJSDate(selectedDay).startOf("day");
     const dayEnd = dayStart.plus({ days: 1 });
@@ -273,18 +348,33 @@ function ChartCard({
       variant,
       data: (data[col] as number[]).slice(from, to),
     }));
-    return { time: sliceTime, series: sliceSeries, label: dayStart.toFormat("dd MMM yyyy") };
+    return {
+      time: sliceTime,
+      series: sliceSeries,
+      label: dayStart.toFormat("dd MMM yyyy"),
+    };
   }, [selectedDay, data, config.selected, variant, time]);
 
-  if (!data) return <div style={{ padding: 16, color: "#999" }}>Loading...</div>;
+  if (!data)
+    return <div style={{ padding: 16, color: "#999" }}>Loading...</div>;
 
   return (
-    <div style={editing ? { ...cardStyle, borderColor: "#1e88e5", borderWidth: 2 } : cardStyle}>
+    <div
+      style={
+        editing
+          ? { ...cardStyle, borderColor: "#1e88e5", borderWidth: 2 }
+          : cardStyle
+      }
+    >
       {/* Toolbar */}
       {!editing && (
         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <button style={btnSmall} onClick={onEdit}>Edit</button>
-          <button style={{ ...btnSmall, color: "#c62828" }} onClick={onDelete}>Delete</button>
+          <button style={btnSmall} onClick={onEdit}>
+            Edit
+          </button>
+          <button style={{ ...btnSmall, color: "#c62828" }} onClick={onDelete}>
+            Delete
+          </button>
         </div>
       )}
 
@@ -304,8 +394,40 @@ function ChartCard({
           </div>
           {daySlice && (
             <div className="chart-section">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 4,
+                }}
+              >
+                <button
+                  style={btnArrow}
+                  disabled={selectedDayIdx <= 0}
+                  onClick={() => goDay(-1)}
+                >
+                  &#9664;
+                </button>
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 500,
+                    minWidth: 100,
+                    textAlign: "center",
+                  }}
+                >
+                  {daySlice.label}
+                </span>
+                <button
+                  style={btnArrow}
+                  disabled={selectedDayIdx >= days.length - 1}
+                  onClick={() => goDay(1)}
+                >
+                  &#9654;
+                </button>
+              </div>
               <TimeSeriesChart
-                title={daySlice.label}
                 timeSeries={daySlice.series}
                 time={daySlice.time}
                 timeFormat={d3.timeFormat("%H:%M")}
@@ -318,7 +440,9 @@ function ChartCard({
       )}
 
       {/* Heatmaps */}
-      {isHeatmap && series.length > 0 && time.length > 0 &&
+      {isHeatmap &&
+        series.length > 0 &&
+        time.length > 0 &&
         config.selected.map((col, i) => {
           const values = data[col] as number[];
           const color = COLORS[i % COLORS.length];
@@ -403,7 +527,7 @@ export function ExplorerTab() {
     setDraft(null);
   };
 
-  const handleCancelEdit = (id: number) => {
+  const handleCancelEdit = () => {
     setEditing(null);
     setDraft(null);
   };
@@ -419,7 +543,11 @@ export function ExplorerTab() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <button style={btnPrimary} onClick={handleAdd} disabled={editing === "new"}>
+        <button
+          style={btnPrimary}
+          onClick={handleAdd}
+          disabled={editing === "new"}
+        >
           + Add chart
         </button>
       </div>
@@ -454,7 +582,7 @@ export function ExplorerTab() {
               <ConfigEditor
                 config={config}
                 onApply={handleApplyEdit}
-                onCancel={() => handleCancelEdit(config.id)}
+                onCancel={() => handleCancelEdit()}
                 onDelete={() => handleDelete(config.id)}
                 onChange={setDraft}
               />
@@ -470,7 +598,14 @@ export function ExplorerTab() {
       })}
 
       {charts.length === 0 && editing === null && (
-        <div style={{ color: "#999", fontSize: 14, padding: 32, textAlign: "center" }}>
+        <div
+          style={{
+            color: "#999",
+            fontSize: 14,
+            padding: 32,
+            textAlign: "center",
+          }}
+        >
           No charts yet. Click "+ Add chart" to get started.
         </div>
       )}
@@ -547,6 +682,16 @@ const btnSmall: React.CSSProperties = {
   fontSize: 12,
 };
 
+const btnArrow: React.CSSProperties = {
+  padding: "2px 8px",
+  borderRadius: 4,
+  border: "1px solid #ccc",
+  background: "#fff",
+  cursor: "pointer",
+  fontSize: 14,
+  lineHeight: 1,
+};
+
 // --------------- Utility functions ---------------
 
 function numericColumns(data: ColumnarData): string[] {
@@ -568,7 +713,8 @@ function detectIntervalMinutes(time: Date[]): number {
 }
 
 function lowerBound(time: Date[], target: number): number {
-  let lo = 0, hi = time.length;
+  let lo = 0,
+    hi = time.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
     if (time[mid].getTime() < target) lo = mid + 1;
@@ -577,7 +723,9 @@ function lowerBound(time: Date[], target: number): number {
   return lo;
 }
 
-function sliceByDay(time: Date[]): { dayStart: DateTime; from: number; to: number }[] {
+function sliceByDay(
+  time: Date[],
+): { dayStart: DateTime; from: number; to: number }[] {
   if (time.length === 0) return [];
   const first = DateTime.fromJSDate(time[0]).startOf("day");
   const last = DateTime.fromJSDate(time[time.length - 1]).startOf("day");
@@ -593,7 +741,12 @@ function sliceByDay(time: Date[]): { dayStart: DateTime; from: number; to: numbe
   return slices;
 }
 
-function normalizeDay(values: number[], from: number, to: number, slotsPerDay: number): number[] {
+function normalizeDay(
+  values: number[],
+  from: number,
+  to: number,
+  slotsPerDay: number,
+): number[] {
   const raw = values.slice(from, to);
   if (raw.length === slotsPerDay) return raw;
   if (raw.length > slotsPerDay) return raw.slice(0, slotsPerDay);

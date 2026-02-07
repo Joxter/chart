@@ -267,7 +267,7 @@ function calculateLayout(params: LayoutParams): Layout {
     }
 
     if (item === "title") {
-      if (params.title !== null) {
+      if (params.title) {
         titleLayout = { x: chartX, y: currentY };
         currentY += TITLE.height;
       }
@@ -1407,12 +1407,11 @@ export function HeatMapChart({
     const isDiverging = colorRange.length === 3;
     const colorScale = isDiverging
       ? d3
-          .scaleDiverging(
-            (t: number) =>
-              d3.interpolateRgb(
-                d3.interpolateRgb(colorRange[0], colorRange[1])(t * 2),
-                d3.interpolateRgb(colorRange[1], colorRange[2])(t * 2 - 1),
-              )(t < 0.5 ? 0 : 1),
+          .scaleDiverging((t: number) =>
+            d3.interpolateRgb(
+              d3.interpolateRgb(colorRange[0], colorRange[1])(t * 2),
+              d3.interpolateRgb(colorRange[1], colorRange[2])(t * 2 - 1),
+            )(t < 0.5 ? 0 : 1),
           )
           .domain([vMin, 0, vMax])
       : d3
