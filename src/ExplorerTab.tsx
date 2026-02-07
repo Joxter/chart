@@ -108,12 +108,15 @@ export function ExplorerTab() {
 
   const series: TimeSeriesItem[] = useMemo(
     () =>
-      selected.map((col, i) => ({
-        legend: col,
-        color: COLORS[i % COLORS.length],
-        variant,
-        data: data![col] as number[],
-      })),
+      selected.map((col, i) => {
+        const vals = data![col] as number[];
+        return {
+          legend: col + statsLabel(vals),
+          color: COLORS[i % COLORS.length],
+          variant,
+          data: vals,
+        };
+      }),
     [selected, variant, data],
   );
 
@@ -254,6 +257,7 @@ export function ExplorerTab() {
           const range: [string, string] | [string, string, string] = hasNeg
             ? ["#1e88e5", "#ffffff", color]
             : ["#ffffff", color];
+          const hmTitle = col + statsLabel(values);
 
           if (heatmapMode === "week") {
             const wk = reshapeForWeeklyHeatmap(values, time);
@@ -261,7 +265,7 @@ export function ExplorerTab() {
             return (
               <div key={col} className="chart-section">
                 <HeatMapChart
-                  title={col}
+                  title={hmTitle}
                   data={wk.data}
                   xLabels={wk.xLabels}
                   yLabels={wk.yLabels}
@@ -278,7 +282,7 @@ export function ExplorerTab() {
           return (
             <div key={col} className="chart-section">
               <HeatMapChart
-                title={col}
+                title={hmTitle}
                 data={hm.data}
                 days={hm.days}
                 colorRange={range}
@@ -290,6 +294,18 @@ export function ExplorerTab() {
         })}
     </div>
   );
+}
+
+const fmt = d3.format(",.1f");
+
+function statsLabel(values: number[]): string {
+  const valid = values.filter((v) => v != null && !isNaN(v));
+  if (valid.length === 0) return "";
+  const sum = valid.reduce((a, b) => a + b, 0);
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  const avg = sum / valid.length;
+  return `  tot ${fmt(sum)}  min ${fmt(min)}  max ${fmt(max)}  avg ${fmt(avg)}`;
 }
 
 function numericColumns(data: ColumnarData): string[] {
