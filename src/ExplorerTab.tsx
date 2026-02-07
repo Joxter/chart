@@ -1,7 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import * as d3 from "d3";
 import { DateTime } from "luxon";
-import { TimeSeriesChart, HeatMapChart, type TimeSeriesItem } from "./Chart";
+import {
+  TimeSeriesChart,
+  HeatMapChart,
+  type TimeSeriesItem,
+  type TimeSeriesClickEvent,
+} from "./Chart";
 
 const DATA_FILES = [
   "calc_15min_consumption_2024.json",
@@ -73,6 +78,7 @@ export function ExplorerTab() {
   const [heatmapMode, setHeatmapMode] = useState<"day" | "week">(
     saved.heatmapMode ?? "day",
   );
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
   // Persist to localStorage
   useEffect(() => {
@@ -115,7 +121,7 @@ export function ExplorerTab() {
       selected.map((col, i) => {
         const vals = data![col] as number[];
         return {
-          legend: col + statsLabel(vals),
+          legend: col,
           color: COLORS[i % COLORS.length],
           variant,
           data: vals,
@@ -129,6 +135,39 @@ export function ExplorerTab() {
       prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col],
     );
   };
+
+  const handleChartClick = useCallback((e: TimeSeriesClickEvent) => {
+    setSelectedDay(e.time);
+  }, []);
+
+  // Slice data for the selected day
+  const daySlice = useMemo(() => {
+    if (!selectedDay || !data || selected.length === 0 || time.length === 0)
+      return null;
+
+    const dayStart = DateTime.fromJSDate(selectedDay).startOf("day");
+    const dayEnd = dayStart.plus({ days: 1 });
+    const from = lowerBound(time, dayStart.toMillis());
+    const to = lowerBound(time, dayEnd.toMillis());
+    if (from >= to) return null;
+
+    const sliceTime = time.slice(from, to);
+    const sliceSeries: TimeSeriesItem[] = selected.map((col, i) => {
+      const vals = (data[col] as number[]).slice(from, to);
+      return {
+        legend: col,
+        color: COLORS[i % COLORS.length],
+        variant,
+        data: vals,
+      };
+    });
+
+    return {
+      time: sliceTime,
+      series: sliceSeries,
+      label: dayStart.toFormat("dd MMM yyyy"),
+    };
+  }, [selectedDay, data, selected, time, variant]);
 
   if (!data) return <div style={{ padding: 16 }}>Loading...</div>;
 
@@ -212,7 +251,7 @@ export function ExplorerTab() {
           Columns ({selected.length}/{columns.length})
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
-          {columns.map((col, i) => (
+          {columns.map((col) => (
             <label
               key={col}
               style={{ fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}
@@ -247,6 +286,21 @@ export function ExplorerTab() {
             timeFormat={timeFormat}
             legendWidth={[200]}
             unit=""
+            onClick={handleChartClick}
+          />
+        </div>
+      )}
+
+      {/* Day slice chart */}
+      {daySlice && (
+        <div className="chart-section">
+          <TimeSeriesChart
+            title={daySlice.label}
+            timeSeries={daySlice.series}
+            time={daySlice.time}
+            timeFormat={d3.timeFormat("%H:%M")}
+            legendWidth={[200]}
+            unit=""
           />
         </div>
       )}
@@ -261,7 +315,7 @@ export function ExplorerTab() {
           const range: [string, string] | [string, string, string] = hasNeg
             ? ["#1e88e5", "#ffffff", color]
             : ["#ffffff", color];
-          const hmTitle = col + statsLabel(values);
+          const hmTitle = col;
 
           if (heatmapMode === "week") {
             const wk = reshapeForWeeklyHeatmap(values, time);
