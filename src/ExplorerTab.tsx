@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import * as d3 from "d3";
+import { DateTime } from "luxon";
 import { TimeSeriesChart, HeatMapChart, type TimeSeriesItem } from "./Chart";
 
 const DATA_FILES = [
@@ -41,24 +42,54 @@ type Variant = "line" | "area" | "bars";
 
 type ColumnarData = Record<string, (number | string | null)[]>;
 
+const LS_KEY = "explorerTab";
+
+type SavedState = {
+  file: string;
+  selected: string[];
+  variant: Variant;
+  heatmapMode: "day" | "week";
+};
+
+function loadState(): Partial<SavedState> {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveState(s: SavedState) {
+  localStorage.setItem(LS_KEY, JSON.stringify(s));
+}
+
 export function ExplorerTab() {
-  const [file, setFile] = useState(DATA_FILES[0]);
+  const saved = useMemo(() => loadState(), []);
+  const [file, setFile] = useState(saved.file ?? DATA_FILES[0]);
   const [data, setData] = useState<ColumnarData | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  const [variant, setVariant] = useState<Variant>("line");
-  const [heatmapMode, setHeatmapMode] = useState<"day" | "week">("day");
+  const [variant, setVariant] = useState<Variant>(saved.variant ?? "line");
+  const [heatmapMode, setHeatmapMode] = useState<"day" | "week">(saved.heatmapMode ?? "day");
+
+  // Persist to localStorage
+  useEffect(() => {
+    saveState({ file, selected, variant, heatmapMode });
+  }, [file, selected, variant, heatmapMode]);
 
   // Load file
   useEffect(() => {
     setData(null);
-    setSelected([]);
     fetch(`/${file}`)
       .then((r) => r.json())
       .then((d: ColumnarData) => {
         setData(d);
-        // Auto-select first 3 numeric columns
+        // Restore saved columns if they exist in the new file, otherwise auto-select
         const cols = numericColumns(d);
-        setSelected(cols.slice(0, 3));
+        const restored = saved.file === file && saved.selected
+          ? saved.selected.filter((c) => cols.includes(c))
+          : [];
+        setSelected(restored.length > 0 ? restored : cols.slice(0, 3));
       });
   }, [file]);
 
@@ -219,6 +250,10 @@ export function ExplorerTab() {
         selected.map((col, i) => {
           const values = data![col] as number[];
           const color = COLORS[i % COLORS.length];
+          const hasNeg = values.some((v) => v < 0);
+          const range: [string, string] | [string, string, string] = hasNeg
+            ? ["#1e88e5", "#ffffff", color]
+            : ["#ffffff", color];
 
           if (heatmapMode === "week") {
             const wk = reshapeForWeeklyHeatmap(values, time);
@@ -230,7 +265,7 @@ export function ExplorerTab() {
                   data={wk.data}
                   xLabels={wk.xLabels}
                   yLabels={wk.yLabels}
-                  colorRange={["#ffffff", color]}
+                  colorRange={range}
                   cellWidth={wk.cellWidth}
                   cellHeight={wk.cellHeight}
                 />
@@ -246,7 +281,7 @@ export function ExplorerTab() {
                 title={col}
                 data={hm.data}
                 days={hm.days}
-                colorRange={["#ffffff", color]}
+                colorRange={range}
                 cellWidth={hm.cellWidth}
                 cellHeight={hm.cellHeight}
               />
@@ -276,7 +311,68 @@ function detectIntervalMinutes(time: Date[]): number {
   return Math.round(d3.median(diffs)!);
 }
 
-/** Reshape into data[day][slot] — X = days, Y = time-of-day */
+/**
+ * Binary-search for the first index where time[i] >= target.
+ * Data must be sorted ascending.
+ */
+function lowerBound(time: Date[], target: number): number {
+  let lo = 0,
+    hi = time.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (time[mid].getTime() < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * Split sorted timestamps into calendar-day slices using luxon.
+ * Each slice is { start, end } indices into the original arrays.
+ * DST-safe: uses luxon's startOf("day") which respects local tz.
+ */
+function sliceByDay(
+  time: Date[],
+): { dayStart: DateTime; from: number; to: number }[] {
+  if (time.length === 0) return [];
+  const first = DateTime.fromJSDate(time[0]).startOf("day");
+  const last = DateTime.fromJSDate(time[time.length - 1]).startOf("day");
+  const slices: { dayStart: DateTime; from: number; to: number }[] = [];
+
+  let cursor = first;
+  while (cursor <= last) {
+    const next = cursor.plus({ days: 1 });
+    const from = lowerBound(time, cursor.toMillis());
+    const to = lowerBound(time, next.toMillis());
+    if (from < to) {
+      slices.push({ dayStart: cursor, from, to });
+    }
+    cursor = next;
+  }
+  return slices;
+}
+
+/**
+ * Normalize a day-slice to exactly `slotsPerDay` entries.
+ * Extra slots (fall-back DST) → truncated.
+ * Missing slots (spring-forward DST) → zero-padded.
+ */
+function normalizeDay(
+  values: number[],
+  from: number,
+  to: number,
+  slotsPerDay: number,
+): number[] {
+  const raw = values.slice(from, to);
+  if (raw.length === slotsPerDay) return raw;
+  if (raw.length > slotsPerDay) return raw.slice(0, slotsPerDay);
+  // pad with zeros
+  const padded = new Array(slotsPerDay).fill(0);
+  for (let i = 0; i < raw.length; i++) padded[i] = raw[i];
+  return padded;
+}
+
+/** Reshape into data[day][slot] — X = days, Y = time-of-day. DST-safe. */
 function reshapeForDayHeatmap(
   values: number[],
   time: Date[],
@@ -290,29 +386,29 @@ function reshapeForDayHeatmap(
   if (interval <= 0) return null;
 
   const slotsPerDay = Math.round((24 * 60) / interval);
-  if (slotsPerDay < 4 || values.length < slotsPerDay * 2) return null;
+  if (slotsPerDay < 4 || time.length < slotsPerDay * 2) return null;
 
-  const numDays = Math.floor(values.length / slotsPerDay);
-  const startDate = time[0];
+  const daySlices = sliceByDay(time);
+  console.log(daySlices);
+  if (daySlices.length < 2) return null;
+
   const days: Date[] = [];
   const data: number[][] = [];
 
-  for (let d = 0; d < numDays; d++) {
-    const date = new Date(startDate);
-    date.setDate(date.getDate() + d);
-    days.push(date);
-    data.push(values.slice(d * slotsPerDay, (d + 1) * slotsPerDay));
+  for (const { dayStart, from, to } of daySlices) {
+    days.push(dayStart.toJSDate());
+    data.push(normalizeDay(values, from, to, slotsPerDay));
   }
 
   const cellHeight = slotsPerDay <= 24 ? 4 : slotsPerDay <= 48 ? 2 : 1;
-  const cellWidth = numDays > 200 ? 2 : numDays > 60 ? 3 : 5;
+  const cellWidth = days.length > 200 ? 2 : days.length > 60 ? 3 : 5;
 
   return { data, days, cellWidth, cellHeight };
 }
 
 /**
  * Reshape into weekly grid — X = Mon–Sun (with intra-day resolution), Y = week number.
- * data[weekSlot][weekIndex] where weekSlot = dow * slotsPerDay + slotInDay.
+ * DST-safe: each day is normalized to exactly slotsPerDay entries.
  */
 function reshapeForWeeklyHeatmap(
   values: number[],
@@ -328,12 +424,13 @@ function reshapeForWeeklyHeatmap(
   if (interval <= 0) return null;
 
   const slotsPerDay = Math.round((24 * 60) / interval);
-  if (slotsPerDay < 4 || values.length < slotsPerDay * 2) return null;
+  if (slotsPerDay < 4 || time.length < slotsPerDay * 2) return null;
 
-  const totalDays = Math.floor(values.length / slotsPerDay);
-  const startDate = time[0];
-  const startDow = (startDate.getDay() + 6) % 7; // Mon=0
-  const totalWeeks = Math.ceil((totalDays + startDow) / 7);
+  const daySlices = sliceByDay(time);
+  if (daySlices.length < 2) return null;
+
+  const firstDow = daySlices[0].dayStart.weekday - 1; // luxon: 1=Mon → 0
+  const totalWeeks = Math.ceil((daySlices.length + firstDow) / 7);
   const weekCols = 7 * slotsPerDay;
 
   // data[weekSlot][weekIndex]
@@ -341,13 +438,14 @@ function reshapeForWeeklyHeatmap(
     Array(totalWeeks).fill(NaN),
   );
 
-  for (let d = 0; d < totalDays; d++) {
-    const dow = (d + startDow) % 7;
-    const week = Math.floor((d + startDow) / 7);
-    const srcBase = d * slotsPerDay;
+  for (let d = 0; d < daySlices.length; d++) {
+    const { from, to } = daySlices[d];
+    const dow = (d + firstDow) % 7;
+    const week = Math.floor((d + firstDow) / 7);
+    const row = normalizeDay(values, from, to, slotsPerDay);
     const colBase = dow * slotsPerDay;
     for (let s = 0; s < slotsPerDay; s++) {
-      data[colBase + s][week] = values[srcBase + s] ?? NaN;
+      data[colBase + s][week] = row[s];
     }
   }
 
@@ -359,17 +457,11 @@ function reshapeForWeeklyHeatmap(
 
   // Y labels: month boundaries mapped to week rows
   const yLabels: { row: number; label: string }[] = [];
-  const fmt = d3.timeFormat("%b");
-  for (let m = 0; m < 24; m++) {
-    const year = startDate.getFullYear() + Math.floor(m / 12);
-    const month = m % 12;
-    const mDate = new Date(year, month, 1);
-    const diffDays = Math.round(
-      (mDate.getTime() - startDate.getTime()) / 86400000,
-    );
-    if (diffDays >= 0 && diffDays < totalDays) {
-      const week = Math.floor((diffDays + startDow) / 7);
-      yLabels.push({ row: week, label: fmt(mDate) });
+  for (let d = 0; d < daySlices.length; d++) {
+    const dt = daySlices[d].dayStart;
+    if (dt.day === 1) {
+      const week = Math.floor((d + firstDow) / 7);
+      yLabels.push({ row: week, label: dt.toFormat("MMM") });
     }
   }
 

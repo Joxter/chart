@@ -103,8 +103,8 @@ export type HeatMapChartProps = {
   title?: string | null;
   /** data[col][row] — generic 2D grid */
   data: number[][];
-  /** Two-color range [min, max]. Defaults to blue→red. */
-  colorRange?: [string, string];
+  /** Two-color [min, max] or three-color diverging [negative, zero, positive]. */
+  colorRange?: [string, string] | [string, string, string];
   /** Cell width in px (per column). Default 6. */
   cellWidth?: number;
   /** Cell height in px (per row). Default = cellWidth. */
@@ -1383,9 +1383,20 @@ export function HeatMapChart({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
-    const colorScale = d3
-      .scaleSequential(d3.interpolateRgb(colorRange[0], colorRange[1]))
-      .domain([vMin, vMax]);
+    const isDiverging = colorRange.length === 3;
+    const colorScale = isDiverging
+      ? d3
+          .scaleDiverging(
+            (t: number) =>
+              d3.interpolateRgb(
+                d3.interpolateRgb(colorRange[0], colorRange[1])(t * 2),
+                d3.interpolateRgb(colorRange[1], colorRange[2])(t * 2 - 1),
+              )(t < 0.5 ? 0 : 1),
+          )
+          .domain([vMin, 0, vMax])
+      : d3
+          .scaleSequential(d3.interpolateRgb(colorRange[0], colorRange[1]))
+          .domain([vMin, vMax]);
 
     // Grid lines (horizontal, at Y tick positions)
     ctx.strokeStyle = AXIS.grid.color;
@@ -1509,8 +1520,15 @@ export function HeatMapChart({
     const lw = Math.min(HEATMAP.legendWidth, chartW);
     const lh = HEATMAP.legendHeight;
     const grad = ctx.createLinearGradient(lx, 0, lx + lw, 0);
-    grad.addColorStop(0, colorRange[0]);
-    grad.addColorStop(1, colorRange[1]);
+    if (isDiverging) {
+      const zeroStop = vMin === vMax ? 0.5 : -vMin / (vMax - vMin);
+      grad.addColorStop(0, colorRange[0]);
+      grad.addColorStop(Math.max(0, Math.min(1, zeroStop)), colorRange[1]);
+      grad.addColorStop(1, colorRange[2]);
+    } else {
+      grad.addColorStop(0, colorRange[0]);
+      grad.addColorStop(1, colorRange[1]);
+    }
     ctx.fillStyle = grad;
     ctx.fillRect(lx, ly, lw, lh);
 
@@ -1523,6 +1541,12 @@ export function HeatMapChart({
     ctx.fillText(d3.format(".1f")(vMin), lx, legendLabelY);
     ctx.textAlign = "right";
     ctx.fillText(d3.format(".1f")(vMax), lx + lw, legendLabelY);
+    if (isDiverging) {
+      const zeroStop = vMin === vMax ? 0.5 : -vMin / (vMax - vMin);
+      const zeroX = lx + lw * Math.max(0, Math.min(1, zeroStop));
+      ctx.textAlign = "center";
+      ctx.fillText("0", zeroX, legendLabelY);
+    }
   }, [
     data,
     days,
