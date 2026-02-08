@@ -8,6 +8,12 @@ import {
   type TimeSeriesClickEvent,
   type HighlightPeriod,
 } from "./Chart";
+import {
+  type Strategy,
+  STRATEGY_LABELS,
+  usesTargetPoints,
+  downsampleIndices,
+} from "./downsample";
 
 const DATA_FILES = [
   "calc_15min_consumption_2024.json",
@@ -59,6 +65,8 @@ type ChartConfig = {
   file: string;
   selected: string[];
   chartType: ChartType;
+  downsample: Strategy;
+  targetPoints: number;
 };
 
 const LS_KEY = "explorerTab_v2";
@@ -68,7 +76,7 @@ function loadCharts(): ChartConfig[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return [];
-    const charts: ChartConfig[] = JSON.parse(raw);
+    const charts: ChartConfig[] = JSON.parse(raw).map(migrateConfig);
     for (const c of charts) {
       if (c.id >= nextId) nextId = c.id + 1;
     }
@@ -88,6 +96,16 @@ function newConfig(): ChartConfig {
     file: DATA_FILES[0],
     selected: [],
     chartType: "lines",
+    downsample: "none",
+    targetPoints: 1000,
+  };
+}
+
+function migrateConfig(c: ChartConfig): ChartConfig {
+  return {
+    downsample: "none",
+    targetPoints: 1000,
+    ...c,
   };
 }
 
@@ -194,6 +212,52 @@ function ConfigEditor({
             </label>
           ))}
         </fieldset>
+
+        {/* Downsample */}
+        <fieldset style={{ border: "none", padding: 0 }}>
+          <legend style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
+            Downsample
+          </legend>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <select
+              value={draft.downsample}
+              onChange={(e) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  downsample: e.target.value as Strategy,
+                }))
+              }
+              style={selectStyle}
+            >
+              {(Object.keys(STRATEGY_LABELS) as Strategy[]).map((s) => (
+                <option key={s} value={s}>
+                  {STRATEGY_LABELS[s]}
+                </option>
+              ))}
+            </select>
+            {usesTargetPoints(draft.downsample) && (
+              <label
+                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}
+              >
+                Target:
+                <input
+                  type="number"
+                  min={10}
+                  max={100000}
+                  step={100}
+                  value={draft.targetPoints}
+                  onChange={(e) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      targetPoints: Math.max(10, parseInt(e.target.value) || 1000),
+                    }))
+                  }
+                  style={{ width: 70, fontSize: 13, padding: "2px 4px", borderRadius: 4, border: "1px solid #ccc" }}
+                />
+              </label>
+            )}
+          </div>
+        </fieldset>
       </div>
 
       {/* Column checkboxes */}
@@ -294,15 +358,42 @@ function ChartCard({
     return d3.timeFormat("%d %b");
   }, [time]);
 
+  const dsIndices = useMemo(() => {
+    if (
+      !data ||
+      isHeatmap ||
+      config.downsample === "none" ||
+      config.selected.length === 0 ||
+      time.length === 0
+    )
+      return null;
+    const refCol = data[config.selected[0]] as number[];
+    return downsampleIndices(
+      time,
+      refCol,
+      config.downsample,
+      config.targetPoints,
+    );
+  }, [data, time, config.downsample, config.targetPoints, config.selected, isHeatmap]);
+
+  const dsTime = useMemo(() => {
+    if (!dsIndices) return time;
+    return dsIndices.map((i) => time[i]);
+  }, [dsIndices, time]);
+
   const series: TimeSeriesItem[] = useMemo(() => {
     if (!data) return [];
-    return config.selected.map((col, i) => ({
-      legend: col,
-      color: COLORS[i % COLORS.length],
-      variant,
-      data: data[col] as number[],
-    }));
-  }, [config.selected, variant, data]);
+    return config.selected.map((col, i) => {
+      const raw = data[col] as number[];
+      const values = dsIndices ? dsIndices.map((j) => raw[j]) : raw;
+      return {
+        legend: col,
+        color: COLORS[i % COLORS.length],
+        variant,
+        data: values,
+      };
+    });
+  }, [config.selected, variant, data, dsIndices]);
 
   const handleChartClick = useCallback((e: TimeSeriesClickEvent) => {
     setSelectedDay(e.time);
@@ -342,19 +433,43 @@ function ChartCard({
     const from = lowerBound(time, dayStart.toMillis());
     const to = lowerBound(time, dayEnd.toMillis());
     if (from >= to) return null;
-    const sliceTime = time.slice(from, to);
+    let sliceTime = time.slice(from, to);
+    let slicedData: Record<string, number[]> = {};
+    for (const col of config.selected) {
+      slicedData[col] = (data[col] as number[]).slice(from, to);
+    }
+    // Apply downsampling to the day slice too
+    if (config.downsample !== "none" && config.selected.length > 0) {
+      const refValues = slicedData[config.selected[0]];
+      const dayTarget = Math.min(
+        sliceTime.length,
+        usesTargetPoints(config.downsample)
+          ? Math.max(10, Math.round(config.targetPoints / 365))
+          : sliceTime.length,
+      );
+      const idx = downsampleIndices(
+        sliceTime,
+        refValues,
+        config.downsample,
+        dayTarget,
+      );
+      sliceTime = idx.map((i) => sliceTime[i]);
+      for (const col of config.selected) {
+        slicedData[col] = idx.map((i) => slicedData[col][i]);
+      }
+    }
     const sliceSeries: TimeSeriesItem[] = config.selected.map((col, i) => ({
       legend: col,
       color: COLORS[i % COLORS.length],
       variant,
-      data: (data[col] as number[]).slice(from, to),
+      data: slicedData[col],
     }));
     return {
       time: sliceTime,
       series: sliceSeries,
       label: dayStart.toFormat("dd MMM yyyy"),
     };
-  }, [selectedDay, data, config.selected, variant, time]);
+  }, [selectedDay, data, config.selected, variant, time, config.downsample, config.targetPoints]);
 
   const highlights = useMemo<HighlightPeriod[] | undefined>(() => {
     if (!selectedDay) return undefined;
@@ -387,13 +502,13 @@ function ChartCard({
       )}
 
       {/* Time series chart (lines / area) */}
-      {!isHeatmap && series.length > 0 && time.length > 0 && (
+      {!isHeatmap && series.length > 0 && dsTime.length > 0 && (
         <>
           <div className="chart-section">
             <TimeSeriesChart
-              title={config.file.replace(".json", "")}
+              title={`${config.file.replace(".json", "")}${dsIndices ? ` (${dsIndices.length}/${time.length} pts)` : ""}`}
               timeSeries={series}
-              time={time}
+              time={dsTime}
               timeFormat={timeFormat}
               legendWidth={[200]}
               unit=""
