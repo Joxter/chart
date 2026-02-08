@@ -5,21 +5,23 @@ import {
   ASAP,
   type TupleDataPoint,
   type XYDataPoint,
+  SMA,
 } from "downsample";
 
-export type Strategy = "none" | "lttb" | "peaks-only" | "nth-point" | "asap";
-
-export const STRATEGY_LABELS: Record<Strategy, string> = {
+export const STRATEGY_LABELS = {
   none: "None",
   lttb: "LTTB",
+  sma: "SMA",
   asap: "ASAP",
   "peaks-only": "Peaks only",
   "nth-point": "Nth point",
 };
 
+export type Strategy = keyof typeof STRATEGY_LABELS;
+
 /** Whether the strategy uses a targetPoints parameter */
 export function usesTargetPoints(s: Strategy): boolean {
-  return s === "lttb" || s === "nth-point" || s === "asap";
+  return true;
 }
 
 /**
@@ -43,6 +45,8 @@ export function downsampleIndices(
       return lttbIndices(time, values, targetPoints);
     case "asap":
       return asapIndices(time, values, targetPoints);
+    case "sma":
+      return smaIndices(time, values, targetPoints);
     case "peaks-only":
       return peaksOnlyIndices(values);
     case "nth-point":
@@ -74,6 +78,12 @@ function lttbIndices(time: Date[], values: number[], target: number): number[] {
 function asapIndices(time: Date[], values: number[], target: number): number[] {
   const points: TupleDataPoint[] = time.map((_, i) => [i, values[i]]);
   const result = ASAP(points, target) as XYDataPoint[];
+  return result.map((it) => Math.floor(it.x as number));
+}
+
+function smaIndices(time: Date[], values: number[], target: number): number[] {
+  const points: TupleDataPoint[] = time.map((_, i) => [i, values[i]]);
+  const result = SMA(points, target) as XYDataPoint[];
   return result.map((it) => Math.floor(it.x as number));
 }
 
