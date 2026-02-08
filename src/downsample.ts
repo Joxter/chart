@@ -106,25 +106,6 @@ function peaksOnlyIndices(values: number[]): number[] {
   return indices;
 }
 
-function removePeaksIndices(values: number[]): number[] {
-  if (values.length <= 2)
-    return Array.from({ length: values.length }, (_, i) => i);
-  const indices: number[] = [0];
-  for (let i = 1; i < values.length - 1; i++) {
-    const prev = values[i - 1] ?? 0;
-    const curr = values[i] ?? 0;
-    const next = values[i + 1] ?? 0;
-    // Keep if NOT a local min/max (monotonic point)
-    const isLocalExtremum =
-      (curr >= prev && curr >= next) || (curr <= prev && curr <= next);
-    if (!isLocalExtremum) {
-      indices.push(i);
-    }
-  }
-  indices.push(values.length - 1);
-  return indices;
-}
-
 function nthPointIndices(n: number, target: number): number[] {
   const step = Math.max(1, Math.floor(n / target));
   const indices: number[] = [];

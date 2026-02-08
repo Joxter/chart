@@ -1485,7 +1485,7 @@ export function HeatMapChart({
   const yTicks = useMemo(() => {
     if (yLabels) return yLabels;
     const ticks: { row: number; label: string }[] = [];
-    for (let h = 0; h < 24; h += 3) {
+    for (let h = 0; h <= 24; h += 6) {
       ticks.push({ row: Math.round(h * slotsPerHour), label: `${h}:00` });
     }
     return ticks;

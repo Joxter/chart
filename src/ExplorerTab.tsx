@@ -73,6 +73,8 @@ const LS_KEY = "explorerTab_v2";
 let nextId = 1;
 
 function loadCharts(): ChartConfig[] {
+  // return [];
+
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return [];
@@ -103,36 +105,24 @@ function newConfig(): ChartConfig {
 
 function migrateConfig(c: ChartConfig): ChartConfig {
   return {
+    ...c,
     downsample: "none",
     targetPoints: 5000,
-    ...c,
   };
 }
 
 // --------------- Config Editor ---------------
 
 function ConfigEditor({
-  config,
-  onApply,
-  onCancel,
-  onDelete,
-  onChange,
+  config: draft,
+  onChange: setDraft,
 }: {
   config: ChartConfig;
-  onApply: (c: ChartConfig) => void;
-  onCancel: () => void;
-  onDelete?: () => void;
   onChange: (c: ChartConfig) => void;
 }) {
-  const [draft, setDraft] = useState<ChartConfig>({ ...config });
   const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const prevFile = useRef(config.file);
-
-  // Push draft changes to parent
-  useEffect(() => {
-    onChange(draft);
-  }, [draft]);
+  const prevFile = useRef(draft.file);
 
   // Load columns when file changes
   useEffect(() => {
@@ -144,7 +134,7 @@ function ConfigEditor({
         setColumns(cols);
         // If file changed, auto-select first 3; otherwise keep selection
         if (draft.file !== prevFile.current) {
-          setDraft((prev) => ({ ...prev, selected: cols.slice(0, 3) }));
+          setDraft({ ...draft, selected: cols.slice(0, 2) });
           prevFile.current = draft.file;
         }
         setLoading(false);
@@ -152,16 +142,16 @@ function ConfigEditor({
   }, [draft.file]);
 
   const toggleColumn = (col: string) => {
-    setDraft((prev) => ({
-      ...prev,
-      selected: prev.selected.includes(col)
-        ? prev.selected.filter((c) => c !== col)
-        : [...prev.selected, col],
-    }));
+    setDraft({
+      ...draft,
+      selected: draft.selected.includes(col)
+        ? draft.selected.filter((c) => c !== col)
+        : [...draft.selected, col],
+    });
   };
 
   return (
-    <div style={editorStyle}>
+    <>
       <div
         style={{
           display: "flex",
@@ -172,12 +162,11 @@ function ConfigEditor({
       >
         {/* File select */}
         <label style={labelStyle}>
-          File
           <select
             value={draft.file}
-            onChange={(e) =>
-              setDraft((prev) => ({ ...prev, file: e.target.value }))
-            }
+            onChange={(e) => {
+              setDraft({ ...draft, file: e.target.value });
+            }}
             style={selectStyle}
           >
             {DATA_FILES.map((f) => (
@@ -188,44 +177,16 @@ function ConfigEditor({
           </select>
         </label>
 
-        {/* Chart type */}
-        <fieldset style={{ border: "none", padding: 0 }}>
-          <legend style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
-            Chart type
-          </legend>
-          {(Object.keys(CHART_TYPE_LABELS) as ChartType[]).map((ct) => (
-            <label
-              key={ct}
-              style={{ marginRight: 12, fontSize: 13, cursor: "pointer" }}
-            >
-              <input
-                type="radio"
-                name={`chartType-${draft.id}`}
-                value={ct}
-                checked={draft.chartType === ct}
-                onChange={() =>
-                  setDraft((prev) => ({ ...prev, chartType: ct }))
-                }
-                style={{ marginRight: 4 }}
-              />
-              {CHART_TYPE_LABELS[ct]}
-            </label>
-          ))}
-        </fieldset>
-
         {/* Downsample */}
         <fieldset style={{ border: "none", padding: 0 }}>
-          <legend style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
-            Downsample
-          </legend>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <select
               value={draft.downsample}
               onChange={(e) =>
-                setDraft((prev) => ({
-                  ...prev,
+                setDraft({
+                  ...draft,
                   downsample: e.target.value as Strategy,
-                }))
+                })
               }
               style={selectStyle}
             >
@@ -239,10 +200,10 @@ function ConfigEditor({
               <select
                 value={draft.targetPoints}
                 onChange={(e) =>
-                  setDraft((prev) => ({
-                    ...prev,
+                  setDraft({
+                    ...draft,
                     targetPoints: +e.target.value,
-                  }))
+                  })
                 }
                 style={{ ...selectStyle, width: "100px" }}
               >
@@ -260,15 +221,31 @@ function ConfigEditor({
           </div>
         </fieldset>
       </div>
-
+      <fieldset style={{ border: "none", padding: 0 }}>
+        {(Object.keys(CHART_TYPE_LABELS) as ChartType[]).map((ct) => (
+          <label
+            key={ct}
+            style={{ marginRight: 12, fontSize: 13, cursor: "pointer" }}
+          >
+            <input
+              type="radio"
+              name={`chartType-${draft.id}`}
+              value={ct}
+              checked={draft.chartType === ct}
+              onChange={() => {
+                setDraft({ ...draft, chartType: ct });
+              }}
+              style={{ marginRight: 4 }}
+            />
+            {CHART_TYPE_LABELS[ct]}
+          </label>
+        ))}
+      </fieldset>
       {/* Column checkboxes */}
       {loading ? (
         <div style={{ fontSize: 13, color: "#999" }}>Loading columns...</div>
       ) : (
         <div>
-          <div style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>
-            Columns ({draft.selected.length}/{columns.length})
-          </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
             {columns.map((col) => (
               <label
@@ -299,42 +276,13 @@ function ConfigEditor({
           </div>
         </div>
       )}
-
-      {/* Buttons */}
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-        <button
-          style={btnPrimary}
-          onClick={() => onApply(draft)}
-          disabled={draft.selected.length === 0}
-        >
-          Apply
-        </button>
-        <button style={btnSecondary} onClick={onCancel}>
-          Cancel
-        </button>
-        {onDelete && (
-          <button style={btnDanger} onClick={onDelete}>
-            Delete
-          </button>
-        )}
-      </div>
-    </div>
+    </>
   );
 }
 
 // --------------- Chart Card ---------------
 
-function ChartCard({
-  config,
-  onEdit,
-  onDelete,
-  editing,
-}: {
-  config: ChartConfig;
-  onEdit: () => void;
-  onDelete: () => void;
-  editing: boolean;
-}) {
+function ChartCard({ config }: { config: ChartConfig }) {
   const [data, setData] = useState<ColumnarData | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const variant = config.chartType === "area" ? "area" : "line";
@@ -351,7 +299,7 @@ function ChartCard({
 
   const time = useMemo(() => {
     if (!data?.timestamps) return [];
-    return (data.timestamps as string[]).map((t) => new Date(t));
+    return (data.timestamps as any as string[]).map((t) => new Date(t));
   }, [data]);
 
   const timeFormat = useMemo(() => {
@@ -460,31 +408,15 @@ function ChartCard({
     return <div style={{ padding: 16, color: "#999" }}>Loading...</div>;
 
   return (
-    <div
-      style={
-        editing
-          ? { ...cardStyle, borderColor: "#1e88e5", borderWidth: 2 }
-          : cardStyle
-      }
-    >
-      {/* Toolbar */}
-      {!editing && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <button style={btnSmall} onClick={onEdit}>
-            Edit
-          </button>
-          <button style={{ ...btnSmall, color: "#c62828" }} onClick={onDelete}>
-            Delete
-          </button>
-        </div>
-      )}
-
+    <div>
       {/* Time series chart (lines / area) */}
       {!isHeatmap && series.length > 0 && dsTime.length > 0 && (
         <>
           <div className="chart-section">
+            <p style={{ fontSize: "12px" }}>
+              {`${config.file.replace(".json", "")}${dsIndices ? ` (${dsIndices.length}/${time.length} pts)` : ""}`}
+            </p>
             <TimeSeriesChart
-              title={`${config.file.replace(".json", "")}${dsIndices ? ` (${dsIndices.length}/${time.length} pts)` : ""}`}
               timeSeries={series}
               time={dsTime}
               timeFormat={timeFormat}
@@ -564,8 +496,8 @@ function ChartCard({
                   xLabels={wk.xLabels}
                   yLabels={wk.yLabels}
                   colorRange={range}
-                  cellWidth={wk.cellWidth}
-                  cellHeight={wk.cellHeight}
+                  cellWidth={wk.cellWidth} // 1
+                  cellHeight={wk.cellHeight} // 2
                 />
               </div>
             );
@@ -580,8 +512,8 @@ function ChartCard({
                 data={hm.data}
                 days={hm.days}
                 colorRange={range}
-                cellWidth={hm.cellWidth}
-                cellHeight={hm.cellHeight}
+                cellWidth={hm.cellWidth} // 2
+                cellHeight={hm.cellHeight} // 1
               />
             </div>
           );
@@ -594,107 +526,77 @@ function ChartCard({
 
 export function ExplorerTab() {
   const [charts, setCharts] = useState<ChartConfig[]>(() => loadCharts());
-  // id of chart being edited, or "new" for adding
-  const [editing, setEditing] = useState<number | "new" | null>(null);
-  // live draft config while editing (for real-time chart preview)
-  const [draft, setDraft] = useState<ChartConfig | null>(null);
-  const newConfigRef = useRef<ChartConfig | null>(null);
+  const [editing, setEditing] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     saveCharts(charts);
   }, [charts]);
 
   const handleAdd = () => {
-    newConfigRef.current = newConfig();
-    setDraft(newConfigRef.current);
-    setEditing("new");
-  };
+    const n = newConfig();
 
-  const handleApplyNew = (config: ChartConfig) => {
-    setCharts((prev) => [...prev, config]);
-    setEditing(null);
-    setDraft(null);
-    newConfigRef.current = null;
-  };
-
-  const handleCancelNew = () => {
-    setEditing(null);
-    setDraft(null);
-    newConfigRef.current = null;
-  };
-
-  const handleApplyEdit = (config: ChartConfig) => {
-    setCharts((prev) => prev.map((c) => (c.id === config.id ? config : c)));
-    setEditing(null);
-    setDraft(null);
-  };
-
-  const handleCancelEdit = () => {
-    setEditing(null);
-    setDraft(null);
+    setCharts((prev) => {
+      return [...prev, n];
+    });
+    setEditing({ ...editing, [n.id]: true });
   };
 
   const handleDelete = (id: number) => {
     setCharts((prev) => prev.filter((c) => c.id !== id));
-    if (editing === id) {
-      setEditing(null);
-      setDraft(null);
-    }
+    setEditing({ ...editing, [id]: false });
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <button
-          style={btnPrimary}
-          onClick={handleAdd}
-          disabled={editing === "new"}
-        >
+        <button style={btnPrimary} onClick={handleAdd}>
           + Add chart
         </button>
       </div>
 
-      {/* New chart editor + live preview */}
-      {editing === "new" && newConfigRef.current && (
-        <div>
-          <ConfigEditor
-            config={newConfigRef.current}
-            onApply={handleApplyNew}
-            onCancel={handleCancelNew}
-            onChange={setDraft}
-          />
-          {draft && draft.selected.length > 0 && (
-            <ChartCard
-              config={draft}
-              onEdit={() => {}}
-              onDelete={handleCancelNew}
-              editing={true}
-            />
-          )}
-        </div>
-      )}
-
       {/* Chart list */}
       {charts.map((config) => {
-        const isEditing = editing === config.id;
-        const displayConfig = isEditing && draft ? draft : config;
+        const isEditing = editing[config.id] || false;
         return (
-          <div key={config.id}>
+          <div style={editorStyle} key={config.id}>
             {isEditing && (
               <ConfigEditor
                 config={config}
-                onApply={handleApplyEdit}
-                onCancel={() => handleCancelEdit()}
-                onDelete={() => handleDelete(config.id)}
-                onChange={setDraft}
+                onChange={(c) => {
+                  setCharts(
+                    charts.map((it) => {
+                      return it.id === config.id ? c : it;
+                    }),
+                  );
+                }}
               />
             )}
-            <ChartCard
-              config={displayConfig}
-              onEdit={() => setEditing(config.id)}
-              onDelete={() => handleDelete(config.id)}
-              editing={isEditing}
-            />
+            <ChartCard config={config} />
+            <button
+              style={{
+                ...btnBase,
+                position: "absolute",
+                top: "8px",
+                right: "158px",
+              }}
+              onClick={() =>
+                setEditing({ ...editing, [config.id]: !isEditing })
+              }
+            >
+              {isEditing ? "Save" : "Edit"}
+            </button>
+
+            <button
+              style={{
+                ...btnDanger,
+                position: "absolute",
+                top: "8px",
+                right: "8px",
+              }}
+              onClick={() => handleDelete(config.id)}
+            >
+              Delete
+            </button>
           </div>
         );
       })}
@@ -718,19 +620,12 @@ export function ExplorerTab() {
 // --------------- Styles ---------------
 
 const editorStyle: React.CSSProperties = {
+  position: "relative",
   display: "flex",
   flexDirection: "column",
   gap: 12,
   padding: 16,
-  border: "2px solid #1e88e5",
-  borderRadius: 8,
-  background: "#f5f9ff",
-};
-
-const cardStyle: React.CSSProperties = {
-  padding: 16,
-  border: "1px solid #ddd",
-  borderRadius: 8,
+  background: "#fff",
 };
 
 const labelStyle: React.CSSProperties = {
@@ -763,25 +658,10 @@ const btnPrimary: React.CSSProperties = {
   color: "#fff",
 };
 
-const btnSecondary: React.CSSProperties = {
-  ...btnBase,
-  background: "#e0e0e0",
-  color: "#333",
-};
-
 const btnDanger: React.CSSProperties = {
   ...btnBase,
   background: "#ffebee",
   color: "#c62828",
-};
-
-const btnSmall: React.CSSProperties = {
-  padding: "3px 10px",
-  borderRadius: 4,
-  border: "1px solid #ccc",
-  background: "#fff",
-  cursor: "pointer",
-  fontSize: 12,
 };
 
 const btnArrow: React.CSSProperties = {
@@ -878,16 +758,19 @@ function reshapeForDayHeatmap(values: number[], time: Date[]) {
 function reshapeForWeeklyHeatmap(values: number[], time: Date[]) {
   const interval = detectIntervalMinutes(time);
   if (interval <= 0) return null;
+
   const slotsPerDay = Math.round((24 * 60) / interval);
   if (slotsPerDay < 4 || time.length < slotsPerDay * 2) return null;
   const daySlices = sliceByDay(time);
   if (daySlices.length < 2) return null;
+
   const firstDow = daySlices[0].dayStart.weekday - 1;
   const totalWeeks = Math.ceil((daySlices.length + firstDow) / 7);
   const weekCols = 7 * slotsPerDay;
   const data: number[][] = Array.from({ length: weekCols }, () =>
     Array(totalWeeks).fill(NaN),
   );
+
   for (let d = 0; d < daySlices.length; d++) {
     const { from, to } = daySlices[d];
     const dow = (d + firstDow) % 7;
@@ -898,12 +781,13 @@ function reshapeForWeeklyHeatmap(values: number[], time: Date[]) {
       data[colBase + s][week] = row[s];
     }
   }
+
   const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const xLabels = dayNames.map((label, i) => ({ col: i * slotsPerDay, label }));
   const yLabels: { row: number; label: string }[] = [];
   for (let d = 0; d < daySlices.length; d++) {
     const dt = daySlices[d].dayStart;
-    if (dt.day === 1) {
+    if (dt.day === 1 && dt.month % 3 == 1) {
       const week = Math.floor((d + firstDow) / 7);
       yLabels.push({ row: week, label: dt.toFormat("MMM") });
     }
