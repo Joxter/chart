@@ -51,7 +51,7 @@ const COLORS = [
 ];
 
 type ChartType = "lines" | "area" | "heatmap-day" | "heatmap-week";
-type ColumnarData = Record<string, (number | string | null)[]>;
+type ColumnarData = Record<string, number[]>;
 
 const CHART_TYPE_LABELS: Record<ChartType, string> = {
   lines: "Lines",
@@ -97,14 +97,14 @@ function newConfig(): ChartConfig {
     selected: [],
     chartType: "lines",
     downsample: "none",
-    targetPoints: 1000,
+    targetPoints: 5000,
   };
 }
 
 function migrateConfig(c: ChartConfig): ChartConfig {
   return {
     downsample: "none",
-    targetPoints: 1000,
+    targetPoints: 5000,
     ...c,
   };
 }
@@ -237,7 +237,12 @@ function ConfigEditor({
             </select>
             {usesTargetPoints(draft.downsample) && (
               <label
-                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 13,
+                }}
               >
                 Target:
                 <input
@@ -249,10 +254,19 @@ function ConfigEditor({
                   onChange={(e) =>
                     setDraft((prev) => ({
                       ...prev,
-                      targetPoints: Math.max(10, parseInt(e.target.value) || 1000),
+                      targetPoints: Math.max(
+                        10,
+                        parseInt(e.target.value) || 10000,
+                      ),
                     }))
                   }
-                  style={{ width: 70, fontSize: 13, padding: "2px 4px", borderRadius: 4, border: "1px solid #ccc" }}
+                  style={{
+                    width: 70,
+                    fontSize: 13,
+                    padding: "2px 4px",
+                    borderRadius: 4,
+                    border: "1px solid #ccc",
+                  }}
                 />
               </label>
             )}
@@ -359,22 +373,17 @@ function ChartCard({
   }, [time]);
 
   const dsIndices = useMemo(() => {
-    if (
-      !data ||
-      isHeatmap ||
-      config.downsample === "none" ||
-      config.selected.length === 0 ||
-      time.length === 0
-    )
-      return null;
+    if (!data || isHeatmap || config.selected.length === 0 || time.length === 0)
+      return [];
     const refCol = data[config.selected[0]] as number[];
-    return downsampleIndices(
+    const res = downsampleIndices(
       time,
       refCol,
       config.downsample,
       config.targetPoints,
     );
-  }, [data, time, config.downsample, config.targetPoints, config.selected, isHeatmap]);
+    return res;
+  }, [data, time, config, isHeatmap]);
 
   const dsTime = useMemo(() => {
     if (!dsIndices) return time;
@@ -428,58 +437,42 @@ function ChartCard({
       time.length === 0
     )
       return null;
+
     const dayStart = DateTime.fromJSDate(selectedDay).startOf("day");
     const dayEnd = dayStart.plus({ days: 1 });
+
     const from = lowerBound(time, dayStart.toMillis());
     const to = lowerBound(time, dayEnd.toMillis());
     if (from >= to) return null;
-    let sliceTime = time.slice(from, to);
-    let slicedData: Record<string, number[]> = {};
-    for (const col of config.selected) {
-      slicedData[col] = (data[col] as number[]).slice(from, to);
-    }
-    // Apply downsampling to the day slice too
-    if (config.downsample !== "none" && config.selected.length > 0) {
-      const refValues = slicedData[config.selected[0]];
-      const dayTarget = Math.min(
-        sliceTime.length,
-        usesTargetPoints(config.downsample)
-          ? Math.max(10, Math.round(config.targetPoints / 365))
-          : sliceTime.length,
-      );
-      const idx = downsampleIndices(
-        sliceTime,
-        refValues,
-        config.downsample,
-        dayTarget,
-      );
-      sliceTime = idx.map((i) => sliceTime[i]);
-      for (const col of config.selected) {
-        slicedData[col] = idx.map((i) => slicedData[col][i]);
-      }
-    }
+    const sdDayTimes = dsIndices.filter((ind) => ind >= from && ind <= to);
+
     const sliceSeries: TimeSeriesItem[] = config.selected.map((col, i) => ({
       legend: col,
       color: COLORS[i % COLORS.length],
       variant,
-      data: slicedData[col],
+      data: sdDayTimes.map((ind) => data[col][ind]),
     }));
+
     return {
-      time: sliceTime,
+      time: sdDayTimes.map((ind) => time[ind]),
       series: sliceSeries,
       label: dayStart.toFormat("dd MMM yyyy"),
     };
-  }, [selectedDay, data, config.selected, variant, time, config.downsample, config.targetPoints]);
+  }, [selectedDay, data, config, variant, time]);
 
   const highlights = useMemo<HighlightPeriod[] | undefined>(() => {
     if (!selectedDay) return undefined;
+
     const dayStart = DateTime.fromJSDate(selectedDay).startOf("day");
     const dayEnd = dayStart.plus({ days: 1 });
+
     return [{ from: dayStart.toJSDate(), to: dayEnd.toJSDate() }];
   }, [selectedDay]);
 
   if (!data)
     return <div style={{ padding: 16, color: "#999" }}>Loading...</div>;
+
+  console.log(daySlice?.time);
 
   return (
     <div

@@ -48,11 +48,7 @@ export function downsampleIndices(
   }
 }
 
-function lttbIndices(
-  time: Date[],
-  values: number[],
-  target: number,
-): number[] {
+function lttbIndices(time: Date[], values: number[], target: number): number[] {
   const points: DataPoint[] = time.map((t, i) => ({
     x: t.getTime(),
     y: values[i] ?? 0,
@@ -76,11 +72,13 @@ function lttbIndices(
 function peaksOnlyIndices(values: number[]): number[] {
   if (values.length <= 2)
     return Array.from({ length: values.length }, (_, i) => i);
+
   const indices: number[] = [0];
+
   for (let i = 1; i < values.length - 1; i++) {
-    const prev = values[i - 1] ?? 0;
-    const curr = values[i] ?? 0;
-    const next = values[i + 1] ?? 0;
+    const prev = values[i - 1];
+    const curr = values[i];
+    const next = values[i + 1];
     // Keep if direction changes (local min or max)
     if ((curr >= prev && curr >= next) || (curr <= prev && curr <= next)) {
       indices.push(i);
