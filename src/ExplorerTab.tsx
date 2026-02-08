@@ -236,39 +236,26 @@ function ConfigEditor({
               ))}
             </select>
             {usesTargetPoints(draft.downsample) && (
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontSize: 13,
-                }}
+              <select
+                value={draft.targetPoints}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    targetPoints: +e.target.value,
+                  }))
+                }
+                style={{ ...selectStyle, width: "100px" }}
               >
-                Target:
-                <input
-                  type="number"
-                  min={10}
-                  max={100000}
-                  step={100}
-                  value={draft.targetPoints}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      targetPoints: Math.max(
-                        10,
-                        parseInt(e.target.value) || 10000,
-                      ),
-                    }))
-                  }
-                  style={{
-                    width: 70,
-                    fontSize: 13,
-                    padding: "2px 4px",
-                    borderRadius: 4,
-                    border: "1px solid #ccc",
-                  }}
-                />
-              </label>
+                {Array(20)
+                  .fill(0)
+                  .map((_, s) => {
+                    return (
+                      <option key={s} value={(s + 1) * 1000}>
+                        {(s + 1) * 1000}
+                      </option>
+                    );
+                  })}
+              </select>
             )}
           </div>
         </fieldset>
@@ -471,8 +458,6 @@ function ChartCard({
 
   if (!data)
     return <div style={{ padding: 16, color: "#999" }}>Loading...</div>;
-
-  console.log(daySlice?.time);
 
   return (
     <div

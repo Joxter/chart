@@ -1,23 +1,25 @@
-import { LTTB, type DataPoint, type Indexable } from "downsample";
+import {
+  LTTB,
+  type DataPoint,
+  type Indexable,
+  ASAP,
+  type TupleDataPoint,
+  type XYDataPoint,
+} from "downsample";
 
-export type Strategy =
-  | "none"
-  | "lttb"
-  | "peaks-only"
-  | "remove-peaks"
-  | "nth-point";
+export type Strategy = "none" | "lttb" | "peaks-only" | "nth-point" | "asap";
 
 export const STRATEGY_LABELS: Record<Strategy, string> = {
   none: "None",
   lttb: "LTTB",
+  asap: "ASAP",
   "peaks-only": "Peaks only",
-  "remove-peaks": "Remove peaks",
   "nth-point": "Nth point",
 };
 
 /** Whether the strategy uses a targetPoints parameter */
 export function usesTargetPoints(s: Strategy): boolean {
-  return s === "lttb" || s === "nth-point";
+  return s === "lttb" || s === "nth-point" || s === "asap";
 }
 
 /**
@@ -39,10 +41,10 @@ export function downsampleIndices(
   switch (strategy) {
     case "lttb":
       return lttbIndices(time, values, targetPoints);
+    case "asap":
+      return asapIndices(time, values, targetPoints);
     case "peaks-only":
       return peaksOnlyIndices(values);
-    case "remove-peaks":
-      return removePeaksIndices(values);
     case "nth-point":
       return nthPointIndices(n, targetPoints);
   }
@@ -67,6 +69,12 @@ function lttbIndices(time: Date[], values: number[], target: number): number[] {
     if (idx !== undefined) indices.push(idx);
   }
   return indices;
+}
+
+function asapIndices(time: Date[], values: number[], target: number): number[] {
+  const points: TupleDataPoint[] = time.map((_, i) => [i, values[i]]);
+  const result = ASAP(points, target) as XYDataPoint[];
+  return result.map((it) => Math.floor(it.x as number));
 }
 
 function peaksOnlyIndices(values: number[]): number[] {
