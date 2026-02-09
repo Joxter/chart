@@ -52,61 +52,69 @@ const COLORS = [
   "#7f7f7f",
 ];
 
-type ChartType = "lines" | "area" | "range" | "heatmap-day" | "heatmap-week";
+type ChartType = "lines" | "area" | "range" | "heatmap";
+type HeatmapMode = "day" | "week";
 type ColumnarData = Record<string, number[]>;
 
 const CHART_TYPE_LABELS: Record<ChartType, string> = {
   lines: "Lines",
   area: "Area",
   range: "Range",
-  "heatmap-day": "HeatMap (day)",
-  "heatmap-week": "HeatMap (week)",
+  heatmap: "HeatMap",
 };
 
 type MidMarker = NonNullable<RangeChartProps["midMarker"]>;
 
 const MID_MARKER_LABELS: Record<MidMarker, string> = {
   none: "None",
-  "mean-line": "Mean (line)",
-  "mean-circle": "Mean (dot)",
-  "median-line": "Median (line)",
-  "median-circle": "Median (dot)",
+  "median-circle": "Dot (median)",
+  "mean-circle": "Dot (avg)",
+  "median-line": "Line (median)",
+  "mean-line": "Line (avg)",
 };
 
-type ChartConfig = {
+type ColumnOptions = {
+  midMarker: MidMarker;
+  heatmapMode: HeatmapMode;
+};
+
+const DEFAULT_COL_OPTIONS: ColumnOptions = {
+  midMarker: "none",
+  heatmapMode: "day",
+};
+
+type PanelConfig = {
   id: number;
   file: string;
   selected: string[];
   chartType: ChartType;
   downsample: Strategy;
   targetPoints: number;
-  midMarker: MidMarker;
+  columnOptions: Record<string, ColumnOptions>;
 };
 
 const LS_KEY = "explorerTab_v2";
 let nextId = 1;
 
-function loadCharts(): ChartConfig[] {
-  // return [];
-
+function loadPanels(): PanelConfig[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return [];
-    const charts: ChartConfig[] = JSON.parse(raw).map(migrateConfig);
-    for (const c of charts) {
-      if (c.id >= nextId) nextId = c.id + 1;
+    const panels: PanelConfig[] = JSON.parse(raw).map(migrateConfig);
+    for (const p of panels) {
+      if (p.id >= nextId) nextId = p.id + 1;
     }
-    return charts;
+    return panels;
   } catch {
     return [];
   }
 }
 
-function saveCharts(charts: ChartConfig[]) {
-  localStorage.setItem(LS_KEY, JSON.stringify(charts));
+function savePanels(panels: PanelConfig[]) {
+  localStorage.setItem(LS_KEY, JSON.stringify(panels));
 }
 
-function newConfig(): ChartConfig {
+function newPanel(): PanelConfig {
   return {
     id: nextId++,
     file: DATA_FILES[0],
@@ -114,16 +122,43 @@ function newConfig(): ChartConfig {
     chartType: "lines",
     downsample: "none",
     targetPoints: 5000,
-    midMarker: "none",
+    columnOptions: {},
   };
 }
 
-function migrateConfig(c: ChartConfig): ChartConfig {
+function getColOptions(config: PanelConfig, col: string): ColumnOptions {
+  return config.columnOptions[col] ?? DEFAULT_COL_OPTIONS;
+}
+
+function migrateConfig(c: any): PanelConfig {
+  // migrate old "heatmap-day"/"heatmap-week" to new format
+  let chartType = c.chartType as string;
+  if (chartType === "heatmap-day" || chartType === "heatmap-week") {
+    chartType = "heatmap";
+  }
+
+  // migrate old panel-level midMarker/heatmapMode into columnOptions
+  const columnOptions: Record<string, ColumnOptions> = c.columnOptions ?? {};
+  if (c.midMarker || c.heatmapMode) {
+    const oldMidMarker = c.midMarker ?? "none";
+    const oldHeatmapMode =
+      c.heatmapMode ?? (c.chartType === "heatmap-week" ? "week" : "day");
+    for (const col of c.selected ?? []) {
+      if (!columnOptions[col]) {
+        columnOptions[col] = {
+          midMarker: oldMidMarker,
+          heatmapMode: oldHeatmapMode,
+        };
+      }
+    }
+  }
+
   return {
     ...c,
+    chartType,
+    columnOptions,
     downsample: "none",
     targetPoints: 5000,
-    midMarker: c.midMarker ?? "none",
   };
 }
 
@@ -133,8 +168,8 @@ function ConfigEditor({
   config: draft,
   onChange: setDraft,
 }: {
-  config: ChartConfig;
-  onChange: (c: ChartConfig) => void;
+  config: PanelConfig;
+  onChange: (c: PanelConfig) => void;
 }) {
   const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -248,35 +283,13 @@ function ConfigEditor({
               name={`chartType-${draft.id}`}
               value={ct}
               checked={draft.chartType === ct}
-              onChange={() => {
-                setDraft({ ...draft, chartType: ct });
-              }}
+              onChange={() => setDraft({ ...draft, chartType: ct })}
               style={{ marginRight: 4 }}
             />
             {CHART_TYPE_LABELS[ct]}
           </label>
         ))}
       </fieldset>
-      {draft.chartType === "range" && (
-        <fieldset style={{ border: "none", padding: 0 }}>
-          <label style={{ fontSize: 13, color: "#666", marginRight: 8 }}>
-            Mid marker:
-          </label>
-          <select
-            value={draft.midMarker}
-            onChange={(e) =>
-              setDraft({ ...draft, midMarker: e.target.value as MidMarker })
-            }
-            style={selectStyle}
-          >
-            {(Object.keys(MID_MARKER_LABELS) as MidMarker[]).map((m) => (
-              <option key={m} value={m}>
-                {MID_MARKER_LABELS[m]}
-              </option>
-            ))}
-          </select>
-        </fieldset>
-      )}
       {/* Column checkboxes */}
       {loading ? (
         <div style={{ fontSize: 13, color: "#999" }}>Loading columns...</div>
@@ -318,12 +331,17 @@ function ConfigEditor({
 
 // --------------- Chart Card ---------------
 
-function ChartCard({ config }: { config: ChartConfig }) {
+function ChartCard({
+  config,
+  onChangeColumnOptions,
+}: {
+  config: PanelConfig;
+  onChangeColumnOptions: (col: string, opts: Partial<ColumnOptions>) => void;
+}) {
   const [data, setData] = useState<ColumnarData | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const variant = config.chartType === "area" ? "area" : "line";
-  const isHeatmap =
-    config.chartType === "heatmap-day" || config.chartType === "heatmap-week";
+  const isHeatmap = config.chartType === "heatmap";
   const isRange = config.chartType === "range";
 
   useEffect(() => {
@@ -526,8 +544,33 @@ function ChartCard({ config }: { config: ChartConfig }) {
           if (!data) return null;
           const values = data[col] as number[] | undefined;
           if (!values) return null;
+          const opts = getColOptions(config, col);
           return (
             <div key={col} className="chart-section">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 4,
+                }}
+              >
+                <select
+                  value={opts.midMarker}
+                  onChange={(e) =>
+                    onChangeColumnOptions(col, {
+                      midMarker: e.target.value as MidMarker,
+                    })
+                  }
+                  style={{ ...selectStyle, fontSize: 12, padding: "1px 4px" }}
+                >
+                  {(Object.keys(MID_MARKER_LABELS) as MidMarker[]).map((m) => (
+                    <option key={m} value={m}>
+                      {MID_MARKER_LABELS[m]}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <RangeChart
                 title={col}
                 series={{
@@ -538,17 +581,13 @@ function ChartCard({ config }: { config: ChartConfig }) {
                 time={time}
                 timeFormat={timeFormat}
                 legendWidth={[200]}
-                // midMarker="median-line"
-                // midMarker="mean-line"
-                // midMarker="mean-circle"
-                midMarker="median-circle"
+                midMarker={opts.midMarker}
                 lineWidth={1}
                 gap={2}
               />
             </div>
           );
         })}
-
       {/* Heatmaps */}
       {isHeatmap &&
         series.length > 0 &&
@@ -556,42 +595,70 @@ function ChartCard({ config }: { config: ChartConfig }) {
         config.selected.map((col, i) => {
           const values = data[col] as number[] | undefined;
           if (!values) return null;
+          const opts = getColOptions(config, col);
           const color = COLORS[i % COLORS.length];
           const hasNeg = values.some((v) => v < 0);
-          const range: [string, string] | [string, string, string] = hasNeg
+          const colorRange: [string, string] | [string, string, string] = hasNeg
             ? ["#1e88e5", "#ffffff", color]
             : ["#ffffff", color];
 
-          if (config.chartType === "heatmap-week") {
+          let heatmapContent: React.ReactNode = null;
+          if (opts.heatmapMode === "week") {
             const wk = reshapeForWeeklyHeatmap(values, time);
-            if (!wk) return null;
-            return (
-              <div key={col} className="chart-section">
+            if (wk) {
+              heatmapContent = (
                 <HeatMapChart
                   title={col}
                   data={wk.data}
                   xLabels={wk.xLabels}
                   yLabels={wk.yLabels}
-                  colorRange={range}
-                  cellWidth={wk.cellWidth} // 1
-                  cellHeight={wk.cellHeight} // 2
+                  colorRange={colorRange}
+                  cellWidth={wk.cellWidth}
+                  cellHeight={wk.cellHeight}
                 />
-              </div>
-            );
+              );
+            }
+          } else {
+            const hm = reshapeForDayHeatmap(values, time);
+            if (hm) {
+              heatmapContent = (
+                <HeatMapChart
+                  title={col}
+                  data={hm.data}
+                  days={hm.days}
+                  colorRange={colorRange}
+                  cellWidth={hm.cellWidth}
+                  cellHeight={hm.cellHeight}
+                />
+              );
+            }
           }
+          if (!heatmapContent) return null;
 
-          const hm = reshapeForDayHeatmap(values, time);
-          if (!hm) return null;
           return (
             <div key={col} className="chart-section">
-              <HeatMapChart
-                title={col}
-                data={hm.data}
-                days={hm.days}
-                colorRange={range}
-                cellWidth={hm.cellWidth} // 2
-                cellHeight={hm.cellHeight} // 1
-              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 4,
+                }}
+              >
+                <select
+                  value={opts.heatmapMode}
+                  onChange={(e) =>
+                    onChangeColumnOptions(col, {
+                      heatmapMode: e.target.value as HeatmapMode,
+                    })
+                  }
+                  style={{ ...selectStyle, fontSize: 12, padding: "1px 4px" }}
+                >
+                  <option value="day">Day</option>
+                  <option value="week">Week</option>
+                </select>
+              </div>
+              {heatmapContent}
             </div>
           );
         })}
@@ -602,24 +669,28 @@ function ChartCard({ config }: { config: ChartConfig }) {
 // --------------- Main Component ---------------
 
 export function ExplorerTab() {
-  const [charts, setCharts] = useState<ChartConfig[]>(() => loadCharts());
+  const [panels, setPanels] = useState<PanelConfig[]>(() => loadPanels());
   const [editing, setEditing] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
-    saveCharts(charts);
-  }, [charts]);
+    savePanels(panels);
+  }, [panels]);
+
+  const updatePanel = useCallback(
+    (id: number, updater: (p: PanelConfig) => PanelConfig) => {
+      setPanels((prev) => prev.map((p) => (p.id === id ? updater(p) : p)));
+    },
+    [],
+  );
 
   const handleAdd = () => {
-    const n = newConfig();
-
-    setCharts((prev) => {
-      return [...prev, n];
-    });
+    const n = newPanel();
+    setPanels((prev) => [...prev, n]);
     setEditing({ ...editing, [n.id]: true });
   };
 
   const handleDelete = (id: number) => {
-    setCharts((prev) => prev.filter((c) => c.id !== id));
+    setPanels((prev) => prev.filter((p) => p.id !== id));
     setEditing({ ...editing, [id]: false });
   };
 
@@ -631,24 +702,28 @@ export function ExplorerTab() {
         </button>
       </div>
 
-      {/* Chart list */}
-      {charts.map((config) => {
-        const isEditing = editing[config.id] || false;
+      {panels.map((panel) => {
+        const isEditing = editing[panel.id] || false;
         return (
-          <div style={editorStyle} key={config.id}>
+          <div style={editorStyle} key={panel.id}>
             {isEditing && (
               <ConfigEditor
-                config={config}
-                onChange={(c) => {
-                  setCharts(
-                    charts.map((it) => {
-                      return it.id === config.id ? c : it;
-                    }),
-                  );
-                }}
+                config={panel}
+                onChange={(c) => updatePanel(panel.id, () => c)}
               />
             )}
-            <ChartCard config={config} />
+            <ChartCard
+              config={panel}
+              onChangeColumnOptions={(col, opts) =>
+                updatePanel(panel.id, (p) => ({
+                  ...p,
+                  columnOptions: {
+                    ...p.columnOptions,
+                    [col]: { ...getColOptions(p, col), ...opts },
+                  },
+                }))
+              }
+            />
             <button
               style={{
                 ...btnBase,
@@ -656,9 +731,7 @@ export function ExplorerTab() {
                 top: "8px",
                 right: "158px",
               }}
-              onClick={() =>
-                setEditing({ ...editing, [config.id]: !isEditing })
-              }
+              onClick={() => setEditing({ ...editing, [panel.id]: !isEditing })}
             >
               {isEditing ? "Save" : "Edit"}
             </button>
@@ -670,7 +743,7 @@ export function ExplorerTab() {
                 top: "8px",
                 right: "8px",
               }}
-              onClick={() => handleDelete(config.id)}
+              onClick={() => handleDelete(panel.id)}
             >
               Delete
             </button>
@@ -678,7 +751,7 @@ export function ExplorerTab() {
         );
       })}
 
-      {charts.length === 0 && editing === null && (
+      {panels.length === 0 && (
         <div
           style={{
             color: "#999",
