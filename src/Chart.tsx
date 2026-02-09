@@ -1801,6 +1801,12 @@ export function RangeChart(props: RangeChartProps) {
   const timeFormat =
     props.timeFormat ?? ((d: Date) => d3.timeFormat("%b %d")(d));
 
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const hasMid = midMarker !== "none";
+  const midLabel = midMarker.startsWith("mean") ? "avg" : "med";
+
   const ranges = useMemo(
     () => aggregateDayRanges(time, series.data),
     [time, series.data],
@@ -1854,79 +1860,192 @@ export function RangeChart(props: RangeChartProps) {
       .range([CHART.inset.top, CHART.height - bottomInset]);
   }, [ranges, domain]);
 
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      const svg = svgRef.current;
+      if (!svg || !layout.chart || ranges.length === 0) return;
+
+      const rect = svg.getBoundingClientRect();
+      const mouseX =
+        ((e.clientX - rect.left) / rect.width) * layout.totalWidth -
+        layout.chart.x -
+        CHART.inset.left;
+
+      const step = lw + gap;
+      const idx = Math.round(mouseX / step);
+      setHoveredIndex(Math.max(0, Math.min(ranges.length - 1, idx)));
+    },
+    [layout, ranges, lw, gap],
+  );
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredIndex(null);
+  }, []);
+
+  const fmt = d3.format(".2f");
+
+  const hoveredText = useMemo(() => {
+    if (hoveredIndex == null) return null;
+    const r = ranges[hoveredIndex];
+    const parts = [`min: ${fmt(r.min)}`];
+    if (hasMid) {
+      const midVal = midMarker.startsWith("mean") ? r.mean : r.median;
+      parts.push(`${midLabel}: ${fmt(midVal)}`);
+    }
+    parts.push(`max: ${fmt(r.max)}`);
+    return `${series.legend}  ${parts.join("  ·  ")}`;
+  }, [hoveredIndex, ranges, hasMid, midMarker, midLabel, series.legend]);
+
+  const hoveredX =
+    hoveredIndex != null && layout.chart
+      ? layout.chart.x + CHART.inset.left + hoveredIndex * (lw + gap) + lw / 2
+      : null;
+
+  const svgStyle = useMemo(
+    () => ({
+      width: layout.totalWidth,
+      height: layout.totalHeight,
+    }),
+    [layout.totalWidth, layout.totalHeight],
+  );
+
   return (
-    <svg
-      width={layout.totalWidth}
-      height={layout.totalHeight}
-      style={{ backgroundColor: "#fff" }}
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {title && <ChartTitle title={title} layout={layout} />}
-      {showAxis && <GridLines layout={layout} yScale={yScale} />}
-      {layout.chart && (
-        <g className="range-lines">
-          {ranges.map((r, i) => {
-            const x =
-              layout.chart!.x + CHART.inset.left + i * (lw + gap) + lw / 2;
-            const y1 = layout.chart!.y + yScale(r.max);
-            const y2 = layout.chart!.y + yScale(r.min);
-            const midVal =
-              midMarker !== "none"
+    <div style={{ position: "relative", ...svgStyle }}>
+      {/* Static layer */}
+      <svg
+        width={layout.totalWidth}
+        height={layout.totalHeight}
+        style={{ backgroundColor: "#fff" }}
+        xmlns="http://www.w3.org/2000/svg"
+        pointerEvents="none"
+      >
+        {title && <ChartTitle title={title} layout={layout} />}
+        {showAxis && <GridLines layout={layout} yScale={yScale} />}
+        {layout.chart && (
+          <g className="range-lines">
+            {ranges.map((r, i) => {
+              const x =
+                layout.chart!.x + CHART.inset.left + i * (lw + gap) + lw / 2;
+              const y1 = layout.chart!.y + yScale(r.max);
+              const y2 = layout.chart!.y + yScale(r.min);
+              const midVal = hasMid
                 ? midMarker.startsWith("mean")
                   ? r.mean
                   : r.median
                 : null;
-            const midY = midVal != null ? layout.chart!.y + yScale(midVal) : 0;
-            const isCircle = midMarker.endsWith("circle");
-            return (
-              <g key={i}>
-                <line
-                  x1={x}
-                  y1={y1}
-                  x2={x}
-                  y2={y2}
-                  stroke={series.color}
-                  strokeWidth={lw}
-                  strokeLinecap="round"
-                />
-                {midVal != null &&
-                  (isCircle ? (
-                    <circle
-                      cx={x}
-                      cy={midY}
-                      r={lw * 0.8}
-                      // fill="#fff"
-                      fill={series.color}
-                      stroke={series.color}
-                      strokeWidth={1}
-                    />
-                  ) : (
-                    <line
-                      x1={x - gap * 0}
-                      y1={midY}
-                      x2={x + lw / 2 + gap}
-                      y2={midY}
-                      stroke={series.color}
-                      strokeWidth={lw}
-                    />
-                  ))}
-              </g>
-            );
-          })}
-        </g>
-      )}
-      {showAxis && (
-        <>
-          <AxisY layout={layout} yScale={yScale} unit={unit} />
-          <AxisX
-            layout={layout}
-            xScale={xScale}
-            timeFormat={timeFormat}
-            tickCount={12}
-          />
-        </>
-      )}
-      <ChartLegend items={[series]} legendWidth={legendWidth} layout={layout} />
-    </svg>
+              const midY =
+                midVal != null ? layout.chart!.y + yScale(midVal) : 0;
+              const isCircle = midMarker.endsWith("circle");
+              return (
+                <g key={i}>
+                  <line
+                    x1={x}
+                    y1={y1}
+                    x2={x}
+                    y2={y2}
+                    stroke={series.color}
+                    strokeWidth={lw}
+                    strokeLinecap="round"
+                  />
+                  {midVal != null &&
+                    (isCircle ? (
+                      <circle
+                        cx={x}
+                        cy={midY}
+                        r={lw * 0.8}
+                        fill={series.color}
+                        stroke={series.color}
+                        strokeWidth={1}
+                      />
+                    ) : (
+                      <line
+                        x1={x - gap * 0}
+                        y1={midY}
+                        x2={x + lw / 2 + gap}
+                        y2={midY}
+                        stroke={series.color}
+                        strokeWidth={lw}
+                      />
+                    ))}
+                </g>
+              );
+            })}
+          </g>
+        )}
+        {showAxis && (
+          <>
+            <AxisY layout={layout} yScale={yScale} unit={unit} />
+            <AxisX
+              layout={layout}
+              xScale={xScale}
+              timeFormat={timeFormat}
+              tickCount={12}
+            />
+          </>
+        )}
+        <ChartLegend
+          items={[series]}
+          legendWidth={legendWidth}
+          layout={layout}
+        />
+      </svg>
+      {/* Interactive overlay */}
+      <svg
+        ref={svgRef}
+        width={layout.totalWidth}
+        height={layout.totalHeight}
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ position: "absolute", top: 0, left: 0 }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+        <Crosshair
+          x={hoveredX}
+          label={
+            hoveredIndex != null
+              ? timeFormat(ranges[hoveredIndex].day)
+              : null
+          }
+          layout={layout}
+        />
+        {layout.legend && legendWidth && (
+          <g className="legend">
+            {/* Background to cover static legend */}
+            {hoveredText && (
+              <rect
+                x={layout.legend.x}
+                y={layout.legend.y}
+                width={legendWidth.reduce((a, b) => a + b, 0)}
+                height={LEGEND.rowHeight}
+                fill="#fff"
+              />
+            )}
+            <line
+              x1={layout.legend.x}
+              y1={layout.legend.y + LEGEND.rowHeight / 2}
+              x2={layout.legend.x + LEGEND.lineWidth}
+              y2={layout.legend.y + LEGEND.rowHeight / 2}
+              stroke={series.color}
+              strokeWidth={LEGEND.lineHeight}
+              strokeLinecap="round"
+            />
+            <text
+              x={layout.legend.x + LEGEND.lineWidth + LEGEND.lineMargin}
+              y={
+                layout.legend.y +
+                LEGEND.rowHeight / 2 +
+                LEGEND.fontVerticalAlignment
+              }
+              fontSize={LEGEND.fontSize}
+              fontFamily={LEGEND.fontFamily}
+              fill={LEGEND.color}
+              dominantBaseline="middle"
+            >
+              {hoveredText ?? series.legend}
+            </text>
+          </g>
+        )}
+      </svg>
+    </div>
   );
 }
