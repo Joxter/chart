@@ -1732,6 +1732,10 @@ export type RangeChartProps = {
     | "mean-circle"
     | "median-line"
     | "median-circle";
+  /** Called when a day bar is clicked. */
+  onClick?: (day: Date) => void;
+  /** Highlight a specific day. */
+  highlightDay?: Date | null;
 };
 
 type DayRange = {
@@ -1796,6 +1800,8 @@ export function RangeChart(props: RangeChartProps) {
     lineWidth: lw = 2,
     gap = 1,
     midMarker = "none",
+    onClick,
+    highlightDay,
   } = props;
   const showAxis = props.showAxis ?? true;
   const timeFormat =
@@ -1882,6 +1888,20 @@ export function RangeChart(props: RangeChartProps) {
     setHoveredIndex(null);
   }, []);
 
+  const handleClick = useCallback(() => {
+    if (hoveredIndex != null && onClick) {
+      onClick(ranges[hoveredIndex].day);
+    }
+  }, [hoveredIndex, onClick, ranges]);
+
+  const highlightIdx = useMemo(() => {
+    if (!highlightDay) return -1;
+    const t = new Date(highlightDay);
+    t.setHours(0, 0, 0, 0);
+    const ms = t.getTime();
+    return ranges.findIndex((r) => r.day.getTime() === ms);
+  }, [highlightDay, ranges]);
+
   const fmt = d3.format(".2f");
 
   const hoveredText = useMemo(() => {
@@ -1921,6 +1941,15 @@ export function RangeChart(props: RangeChartProps) {
       >
         {title && <ChartTitle title={title} layout={layout} />}
         {showAxis && <GridLines layout={layout} yScale={yScale} />}
+        {layout.chart && highlightIdx >= 0 && (
+          <rect
+            x={layout.chart.x + CHART.inset.left + highlightIdx * (lw + gap)}
+            y={layout.chart.y}
+            width={lw + gap}
+            height={layout.chart.height}
+            fill="#0001"
+          />
+        )}
         {layout.chart && (
           <g className="range-lines">
             {ranges.map((r, i) => {
@@ -1995,9 +2024,10 @@ export function RangeChart(props: RangeChartProps) {
         width={layout.totalWidth}
         height={layout.totalHeight}
         xmlns="http://www.w3.org/2000/svg"
-        style={{ position: "absolute", top: 0, left: 0 }}
+        style={{ position: "absolute", top: 0, left: 0, cursor: onClick ? "pointer" : undefined }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       >
         <Crosshair
           x={hoveredX}

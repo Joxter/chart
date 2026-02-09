@@ -407,6 +407,10 @@ function ChartCard({
     setSelectedDay(e.time);
   }, []);
 
+  const handleRangeDayClick = useCallback((day: Date) => {
+    setSelectedDay(day);
+  }, []);
+
   const days = useMemo(() => {
     if (time.length === 0) return [];
     return sliceByDay(time).map((s) => s.dayStart);
@@ -443,21 +447,34 @@ function ChartCard({
     const from = lowerBound(time, dayStart.toMillis());
     const to = lowerBound(time, dayEnd.toMillis());
     if (from >= to) return null;
-    const sdDayTimes = dsIndices.filter((ind) => ind >= from && ind <= to);
 
-    const sliceSeries: TimeSeriesItem[] = config.selected.map((col, i) => ({
-      legend: col,
-      color: COLORS[i % COLORS.length],
-      variant,
-      data: sdDayTimes.map((ind) => data[col][ind]),
-    }));
+    // For range mode, use all indices; for line/area, use downsampled indices
+    const dayIndices =
+      isRange || dsIndices.length === 0
+        ? Array.from({ length: to - from }, (_, k) => from + k)
+        : dsIndices.filter((ind) => ind >= from && ind <= to);
+
+    if (dayIndices.length === 0) return null;
+
+    const sliceSeries: TimeSeriesItem[] = config.selected
+      .map((col, i) => {
+        const raw = data[col] as number[] | undefined;
+        if (!raw) return null;
+        return {
+          legend: col,
+          color: COLORS[i % COLORS.length],
+          variant: "line" as const,
+          data: dayIndices.map((ind) => raw[ind]),
+        };
+      })
+      .filter((s): s is TimeSeriesItem => s != null);
 
     return {
-      time: sdDayTimes.map((ind) => time[ind]),
+      time: dayIndices.map((ind) => time[ind]),
       series: sliceSeries,
       label: dayStart.toFormat("dd MMM yyyy"),
     };
-  }, [selectedDay, data, config, variant, time]);
+  }, [selectedDay, data, config, variant, time, isRange, dsIndices]);
 
   const highlights = useMemo<HighlightPeriod[] | undefined>(() => {
     if (!selectedDay) return undefined;
@@ -584,10 +601,58 @@ function ChartCard({
                 midMarker={opts.midMarker}
                 lineWidth={1}
                 gap={2}
+                onClick={handleRangeDayClick}
+                highlightDay={selectedDay}
               />
             </div>
           );
         })}
+      {/* Day slice for range charts */}
+      {isRange && daySlice && (
+        <div className="chart-section">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <button
+              style={btnArrow}
+              disabled={selectedDayIdx <= 0}
+              onClick={() => goDay(-1)}
+            >
+              &#9664;
+            </button>
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                minWidth: 100,
+                textAlign: "center",
+              }}
+            >
+              {daySlice.label}
+            </span>
+            <button
+              style={btnArrow}
+              disabled={selectedDayIdx >= days.length - 1}
+              onClick={() => goDay(1)}
+            >
+              &#9654;
+            </button>
+          </div>
+          <TimeSeriesChart
+            timeSeries={daySlice.series}
+            time={daySlice.time}
+            timeFormat={d3.timeFormat("%H:%M")}
+            legendWidth={[200]}
+            unit=""
+          />
+        </div>
+      )}
+
       {/* Heatmaps */}
       {isHeatmap &&
         series.length > 0 &&
