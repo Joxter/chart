@@ -4,6 +4,7 @@ import {
   TimeSeriesChart,
   CategoricalChart,
   HeatMapChart,
+  RangeChart,
   type TimeSeriesItem,
   type CategoricalSeriesItem,
   type HighlightPeriod,
@@ -501,7 +502,13 @@ const gridWeekly = reshapeToWeekly(gridData, DATA_START);
 // --- Tab helpers: sync active tab with URL search param ---
 
 const TAB_PARAM = "tab";
-const TABS = ["explorer", "timeseries", "categorical", "heatmap"] as const;
+const TABS = [
+  "explorer",
+  "timeseries",
+  "categorical",
+  "heatmap",
+  "range",
+] as const;
 type Tab = (typeof TABS)[number];
 
 const TAB_LABELS: Record<Tab, string> = {
@@ -509,6 +516,7 @@ const TAB_LABELS: Record<Tab, string> = {
   timeseries: "Time Series",
   categorical: "Categorical",
   heatmap: "Heat Map",
+  range: "Range",
 };
 
 function getTabFromURL(): Tab {
@@ -844,6 +852,35 @@ function HeatMapTab() {
   );
 }
 
+function RangeTab() {
+  return (
+    <>
+      <h3>Daily min–max range (1 year, 15-min data)</h3>
+      <RangeChart
+        title="Site Load — Daily Range"
+        series={{ legend: "Load", color: "#1f77b4", data: loadData }}
+        time={testTime}
+        unit="kW"
+        legendWidth={[120]}
+        lineWidth={2}
+        midMarker="mean-circle"
+        gap={1}
+      />
+
+      <RangeChart
+        title="Grid Consumption — Daily Range"
+        series={{ legend: "Grid", color: "#e53935", data: gridData }}
+        time={testTime}
+        unit="kW"
+        legendWidth={[120]}
+        midMarker="median-line"
+        lineWidth={2}
+        gap={1}
+      />
+    </>
+  );
+}
+
 // --- Playground ---
 
 export function ChartPg() {
@@ -863,6 +900,7 @@ export function ChartPg() {
       {tab === "timeseries" && <TimeSeriesTab />}
       {tab === "categorical" && <CategoricalTab />}
       {tab === "heatmap" && <HeatMapTab />}
+      {tab === "range" && <RangeTab />}
     </div>
   );
 }

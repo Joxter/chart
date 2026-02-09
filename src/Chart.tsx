@@ -1706,3 +1706,227 @@ export function HeatMapChart({
 
   return <canvas ref={canvasRef} />;
 }
+
+// --- RangeChart: vertical min–max lines per day ---
+
+export type RangeChartProps = {
+  title?: string | null;
+  /** Single time series with high-frequency data (e.g. 15-min). */
+  series: TimeSeriesItem;
+  /** Timestamps matching series.data length. */
+  time: Date[];
+  timeFormat?: (date: Date) => string;
+  legendWidth?: number[];
+  showAxis?: boolean;
+  layoutRows?: ("title" | "legend" | "chart")[];
+  unit?: string;
+  domain?: number[];
+  /** Width of each vertical line in px. Default 2. */
+  lineWidth?: number;
+  /** Gap between lines in px. Default 1. */
+  gap?: number;
+  /** Show daily mean/median as a marker. Default "none". */
+  midMarker?:
+    | "none"
+    | "mean-line"
+    | "mean-circle"
+    | "median-line"
+    | "median-circle";
+};
+
+type DayRange = {
+  day: Date;
+  min: number;
+  max: number;
+  mean: number;
+  median: number;
+};
+
+function finishDay(
+  day: Date,
+  min: number,
+  max: number,
+  values: number[],
+): DayRange {
+  const sum = values.reduce((a, b) => a + b, 0);
+  const mean = sum / values.length;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  const median =
+    sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return { day, min, max, mean, median };
+}
+
+function aggregateDayRanges(time: Date[], data: number[]): DayRange[] {
+  if (time.length === 0) return [];
+  const ranges: DayRange[] = [];
+  let curDay = new Date(time[0]);
+  curDay.setHours(0, 0, 0, 0);
+  let min = data[0];
+  let max = data[0];
+  let dayValues = [data[0]];
+
+  for (let i = 1; i < time.length; i++) {
+    const d = new Date(time[i]);
+    d.setHours(0, 0, 0, 0);
+    if (d.getTime() !== curDay.getTime()) {
+      ranges.push(finishDay(curDay, min, max, dayValues));
+      curDay = d;
+      min = data[i];
+      max = data[i];
+      dayValues = [data[i]];
+    } else {
+      if (data[i] < min) min = data[i];
+      if (data[i] > max) max = data[i];
+      dayValues.push(data[i]);
+    }
+  }
+  ranges.push(finishDay(curDay, min, max, dayValues));
+  return ranges;
+}
+
+export function RangeChart(props: RangeChartProps) {
+  const {
+    title,
+    series,
+    time,
+    legendWidth,
+    unit,
+    domain,
+    lineWidth: lw = 2,
+    gap = 1,
+    midMarker = "none",
+  } = props;
+  const showAxis = props.showAxis ?? true;
+  const timeFormat =
+    props.timeFormat ?? ((d: Date) => d3.timeFormat("%b %d")(d));
+
+  const ranges = useMemo(
+    () => aggregateDayRanges(time, series.data),
+    [time, series.data],
+  );
+
+  const chartWidth = useMemo(
+    () =>
+      CHART.inset.left +
+      ranges.length * lw +
+      Math.max(0, ranges.length - 1) * gap +
+      CHART.inset.right,
+    [ranges.length, lw, gap],
+  );
+
+  const layout = useMemo(
+    () =>
+      calculateLayout({
+        ...props,
+        seriesCount: 1,
+        chartWidth,
+      }),
+    [title, showAxis, legendWidth, chartWidth, props.layoutRows],
+  );
+
+  const xScale = useMemo(() => {
+    if (ranges.length === 0) return d3.scaleTime().range([0, 0]);
+    return d3
+      .scaleTime()
+      .domain([ranges[0].day, ranges[ranges.length - 1].day])
+      .range([
+        CHART.inset.left,
+        CHART.inset.left + (ranges.length - 1) * (lw + gap) + lw / 2,
+      ]);
+  }, [ranges, lw, gap]);
+
+  const yScale: YScale = useMemo(() => {
+    let yMin = Infinity;
+    let yMax = -Infinity;
+    for (const r of ranges) {
+      if (r.min < yMin) yMin = r.min;
+      if (r.max > yMax) yMax = r.max;
+    }
+    if (domain) {
+      [yMin, yMax] = minMax([yMin, yMax, ...domain]);
+    }
+    const bottomInset = yMin < 0 ? CHART.inset.bottom : 0;
+    return d3
+      .scaleLinear()
+      .domain([yMax, yMin])
+      .nice()
+      .range([CHART.inset.top, CHART.height - bottomInset]);
+  }, [ranges, domain]);
+
+  return (
+    <svg
+      width={layout.totalWidth}
+      height={layout.totalHeight}
+      style={{ backgroundColor: "#fff" }}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {title && <ChartTitle title={title} layout={layout} />}
+      {showAxis && <GridLines layout={layout} yScale={yScale} />}
+      {layout.chart && (
+        <g className="range-lines">
+          {ranges.map((r, i) => {
+            const x =
+              layout.chart!.x + CHART.inset.left + i * (lw + gap) + lw / 2;
+            const y1 = layout.chart!.y + yScale(r.max);
+            const y2 = layout.chart!.y + yScale(r.min);
+            const midVal =
+              midMarker !== "none"
+                ? midMarker.startsWith("mean")
+                  ? r.mean
+                  : r.median
+                : null;
+            const midY = midVal != null ? layout.chart!.y + yScale(midVal) : 0;
+            const isCircle = midMarker.endsWith("circle");
+            return (
+              <g key={i}>
+                <line
+                  x1={x}
+                  y1={y1}
+                  x2={x}
+                  y2={y2}
+                  stroke={series.color}
+                  strokeWidth={lw}
+                  strokeLinecap="round"
+                />
+                {midVal != null &&
+                  (isCircle ? (
+                    <circle
+                      cx={x}
+                      cy={midY}
+                      r={lw * 0.8}
+                      // fill="#fff"
+                      fill={series.color}
+                      stroke={series.color}
+                      strokeWidth={1}
+                    />
+                  ) : (
+                    <line
+                      x1={x - gap * 0}
+                      y1={midY}
+                      x2={x + lw / 2 + gap}
+                      y2={midY}
+                      stroke={series.color}
+                      strokeWidth={lw}
+                    />
+                  ))}
+              </g>
+            );
+          })}
+        </g>
+      )}
+      {showAxis && (
+        <>
+          <AxisY layout={layout} yScale={yScale} unit={unit} />
+          <AxisX
+            layout={layout}
+            xScale={xScale}
+            timeFormat={timeFormat}
+            tickCount={12}
+          />
+        </>
+      )}
+      <ChartLegend items={[series]} legendWidth={legendWidth} layout={layout} />
+    </svg>
+  );
+}

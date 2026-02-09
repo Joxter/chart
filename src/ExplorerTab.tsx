@@ -4,6 +4,8 @@ import { DateTime } from "luxon";
 import {
   TimeSeriesChart,
   HeatMapChart,
+  RangeChart,
+  type RangeChartProps,
   type TimeSeriesItem,
   type TimeSeriesClickEvent,
   type HighlightPeriod,
@@ -50,14 +52,25 @@ const COLORS = [
   "#7f7f7f",
 ];
 
-type ChartType = "lines" | "area" | "heatmap-day" | "heatmap-week";
+type ChartType = "lines" | "area" | "range" | "heatmap-day" | "heatmap-week";
 type ColumnarData = Record<string, number[]>;
 
 const CHART_TYPE_LABELS: Record<ChartType, string> = {
   lines: "Lines",
   area: "Area",
+  range: "Range",
   "heatmap-day": "HeatMap (day)",
   "heatmap-week": "HeatMap (week)",
+};
+
+type MidMarker = NonNullable<RangeChartProps["midMarker"]>;
+
+const MID_MARKER_LABELS: Record<MidMarker, string> = {
+  none: "None",
+  "mean-line": "Mean (line)",
+  "mean-circle": "Mean (dot)",
+  "median-line": "Median (line)",
+  "median-circle": "Median (dot)",
 };
 
 type ChartConfig = {
@@ -67,6 +80,7 @@ type ChartConfig = {
   chartType: ChartType;
   downsample: Strategy;
   targetPoints: number;
+  midMarker: MidMarker;
 };
 
 const LS_KEY = "explorerTab_v2";
@@ -100,6 +114,7 @@ function newConfig(): ChartConfig {
     chartType: "lines",
     downsample: "none",
     targetPoints: 5000,
+    midMarker: "none",
   };
 }
 
@@ -108,6 +123,7 @@ function migrateConfig(c: ChartConfig): ChartConfig {
     ...c,
     downsample: "none",
     targetPoints: 5000,
+    midMarker: c.midMarker ?? "none",
   };
 }
 
@@ -241,6 +257,26 @@ function ConfigEditor({
           </label>
         ))}
       </fieldset>
+      {draft.chartType === "range" && (
+        <fieldset style={{ border: "none", padding: 0 }}>
+          <label style={{ fontSize: 13, color: "#666", marginRight: 8 }}>
+            Mid marker:
+          </label>
+          <select
+            value={draft.midMarker}
+            onChange={(e) =>
+              setDraft({ ...draft, midMarker: e.target.value as MidMarker })
+            }
+            style={selectStyle}
+          >
+            {(Object.keys(MID_MARKER_LABELS) as MidMarker[]).map((m) => (
+              <option key={m} value={m}>
+                {MID_MARKER_LABELS[m]}
+              </option>
+            ))}
+          </select>
+        </fieldset>
+      )}
       {/* Column checkboxes */}
       {loading ? (
         <div style={{ fontSize: 13, color: "#999" }}>Loading columns...</div>
@@ -288,6 +324,7 @@ function ChartCard({ config }: { config: ChartConfig }) {
   const variant = config.chartType === "area" ? "area" : "line";
   const isHeatmap =
     config.chartType === "heatmap-day" || config.chartType === "heatmap-week";
+  const isRange = config.chartType === "range";
 
   useEffect(() => {
     setData(null);
@@ -308,7 +345,13 @@ function ChartCard({ config }: { config: ChartConfig }) {
   }, [time]);
 
   const dsIndices = useMemo(() => {
-    if (!data || isHeatmap || config.selected.length === 0 || time.length === 0)
+    if (
+      !data ||
+      isHeatmap ||
+      isRange ||
+      config.selected.length === 0 ||
+      time.length === 0
+    )
       return [];
     const refCol = data[config.selected[0]] as number[];
     const res = downsampleIndices(
@@ -318,7 +361,7 @@ function ChartCard({ config }: { config: ChartConfig }) {
       config.targetPoints,
     );
     return res;
-  }, [data, time, config, isHeatmap]);
+  }, [data, time, config, isHeatmap, isRange]);
 
   const dsTime = useMemo(() => {
     if (!dsIndices) return time;
@@ -410,7 +453,7 @@ function ChartCard({ config }: { config: ChartConfig }) {
   return (
     <div>
       {/* Time series chart (lines / area) */}
-      {!isHeatmap && series.length > 0 && dsTime.length > 0 && (
+      {!isHeatmap && !isRange && series.length > 0 && dsTime.length > 0 && (
         <>
           <div className="chart-section">
             <p style={{ fontSize: "12px" }}>
@@ -472,6 +515,35 @@ function ChartCard({ config }: { config: ChartConfig }) {
           )}
         </>
       )}
+
+      {/* Range chart (one per selected column) */}
+      {isRange &&
+        time.length > 0 &&
+        config.selected.map((col, i) => {
+          if (!data) return null;
+          const values = data[col] as number[];
+          return (
+            <div key={col} className="chart-section">
+              <RangeChart
+                title={col}
+                series={{
+                  legend: col,
+                  color: COLORS[i % COLORS.length],
+                  data: values,
+                }}
+                time={time}
+                timeFormat={timeFormat}
+                legendWidth={[200]}
+                // midMarker="median-line"
+                // midMarker="mean-line"
+                // midMarker="mean-circle"
+                midMarker="median-circle"
+                lineWidth={1}
+                gap={2}
+              />
+            </div>
+          );
+        })}
 
       {/* Heatmaps */}
       {isHeatmap &&
