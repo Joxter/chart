@@ -370,16 +370,19 @@ function ChartCard({ config }: { config: ChartConfig }) {
 
   const series: TimeSeriesItem[] = useMemo(() => {
     if (!data) return [];
-    return config.selected.map((col, i) => {
-      const raw = data[col] as number[];
-      const values = dsIndices ? dsIndices.map((j) => raw[j]) : raw;
-      return {
-        legend: col,
-        color: COLORS[i % COLORS.length],
-        variant,
-        data: values,
-      };
-    });
+    return config.selected
+      .map((col, i) => {
+        const raw = data[col] as number[] | undefined;
+        if (!raw) return null;
+        const values = dsIndices ? dsIndices.map((j) => raw[j]) : raw;
+        return {
+          legend: col,
+          color: COLORS[i % COLORS.length],
+          variant,
+          data: values,
+        };
+      })
+      .filter((s): s is TimeSeriesItem => s != null);
   }, [config.selected, variant, data, dsIndices]);
 
   const handleChartClick = useCallback((e: TimeSeriesClickEvent) => {
@@ -521,7 +524,8 @@ function ChartCard({ config }: { config: ChartConfig }) {
         time.length > 0 &&
         config.selected.map((col, i) => {
           if (!data) return null;
-          const values = data[col] as number[];
+          const values = data[col] as number[] | undefined;
+          if (!values) return null;
           return (
             <div key={col} className="chart-section">
               <RangeChart
@@ -550,7 +554,8 @@ function ChartCard({ config }: { config: ChartConfig }) {
         series.length > 0 &&
         time.length > 0 &&
         config.selected.map((col, i) => {
-          const values = data[col] as number[];
+          const values = data[col] as number[] | undefined;
+          if (!values) return null;
           const color = COLORS[i % COLORS.length];
           const hasNeg = values.some((v) => v < 0);
           const range: [string, string] | [string, string, string] = hasNeg

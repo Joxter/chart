@@ -1808,7 +1808,7 @@ export function RangeChart(props: RangeChartProps) {
   const midLabel = midMarker.startsWith("mean") ? "avg" : "med";
 
   const ranges = useMemo(
-    () => aggregateDayRanges(time, series.data),
+    () => aggregateDayRanges(time, series.data || []),
     [time, series.data],
   );
 
@@ -2002,9 +2002,7 @@ export function RangeChart(props: RangeChartProps) {
         <Crosshair
           x={hoveredX}
           label={
-            hoveredIndex != null
-              ? timeFormat(ranges[hoveredIndex].day)
-              : null
+            hoveredIndex != null ? timeFormat(ranges[hoveredIndex].day) : null
           }
           layout={layout}
         />
