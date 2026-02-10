@@ -8,7 +8,7 @@ import {
   type RangeChartProps,
   type TimeSeriesItem,
   type TimeSeriesClickEvent,
-  type HighlightPeriod,
+  type Highlights,
 } from "./Chart";
 import {
   type Strategy,
@@ -476,7 +476,7 @@ function ChartCard({
     };
   }, [selectedDay, data, config, variant, time, isRange, dsIndices]);
 
-  const highlights = useMemo<HighlightPeriod[] | undefined>(() => {
+  const highlights = useMemo<Highlights[] | undefined>(() => {
     if (!selectedDay) return undefined;
 
     const dayStart = DateTime.fromJSDate(selectedDay).startOf("day");

@@ -79,7 +79,9 @@ export type TimeSeriesClickEvent = {
   values: { legend: string; value: number | null }[];
 };
 
-export type HighlightPeriod = { date: Date } | { from: Date; to: Date };
+export type Highlights =
+  | { date: Date; variant?: "line" | "star-icon"; label?: string }
+  | { from: Date; to: Date };
 
 export type TimeSeriesChartProps = {
   title?: string | null;
@@ -93,7 +95,7 @@ export type TimeSeriesChartProps = {
   unit?: string;
   domain?: number[];
   onClick?: (event: TimeSeriesClickEvent) => void;
-  highlights?: HighlightPeriod[];
+  highlights?: Highlights[];
 };
 
 export type CategoricalSeriesItem = {
@@ -993,20 +995,70 @@ function HighlightPeriods({
   highlights,
   layout,
   xScale,
+  yScale,
+  time,
+  firstSeries,
 }: {
-  highlights: HighlightPeriod[];
+  highlights: Highlights[];
   layout: Layout;
   xScale: XScale;
+  yScale: YScale;
+  time: Date[];
+  firstSeries: TimeSeriesItem | null;
 }) {
   if (!layout.chart) return null;
   const { x: offsetX, y: offsetY, height: chartH } = layout.chart;
   const color = "#0004";
+
+  const bisect = d3.bisector<Date, Date>((d) => d).left;
 
   return (
     <g className="highlights" pointerEvents="none">
       {highlights.map((h, i) => {
         if ("date" in h) {
           const x = offsetX + xScale(h.date);
+          if (h.variant === "star-icon" && firstSeries) {
+            let idx = bisect(time, h.date);
+            if (idx > 0 && idx < time.length) {
+              const d0 = time[idx - 1];
+              const d1 = time[idx];
+              if (!(+h.date - +d0 > +d1 - +h.date)) idx = idx - 1;
+            }
+            idx = Math.max(0, Math.min(time.length - 1, idx));
+            const val = firstSeries.data[idx];
+            if (val == null) return null;
+            const y = offsetY + yScale(val);
+            const r = 4;
+
+            const labelAbove = y - offsetY > chartH * 0.3;
+            const labelY = !labelAbove ? y - r - 6 : y + r + 12;
+
+            return (
+              <g key={i}>
+                {/*<circle cx={x} cy={y} r={r + 3} fill="#fff" />*/}
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={r}
+                  fill="#e53935"
+                  stroke="#fff"
+                  strokeWidth={2}
+                />
+                {h.label && (
+                  <text
+                    x={x}
+                    y={labelY}
+                    textAnchor="middle"
+                    fontSize={LEGEND.fontSize}
+                    fontFamily={LEGEND.fontFamily}
+                    fill={LEGEND.color}
+                  >
+                    {h.label}
+                  </text>
+                )}
+              </g>
+            );
+          }
           return (
             <line
               key={i}
@@ -1273,9 +1325,12 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
         {showAxis && <GridLines layout={layout} yScale={yScale} />}
         {highlights && highlights.length > 0 && (
           <HighlightPeriods
-            highlights={highlights}
+            highlights={highlights.filter((it) => it.from)}
             layout={layout}
             xScale={xScale}
+            yScale={yScale}
+            time={time}
+            firstSeries={timeSeries[0] ?? null}
           />
         )}
         {stackedAreas && (
@@ -1296,6 +1351,17 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
           yScale={yScale}
           exceededMaskId={exceededMaskId}
         />
+        {highlights && highlights.length > 0 && (
+          <HighlightPeriods
+            highlights={highlights.filter((it) => !it.from)}
+            layout={layout}
+            xScale={xScale}
+            yScale={yScale}
+            time={time}
+            firstSeries={timeSeries[0] ?? null}
+          />
+        )}
+
         {secondarySeries && yScaleRight && (
           <ChartLines
             timeSeries={[secondarySeries]}
@@ -2024,7 +2090,12 @@ export function RangeChart(props: RangeChartProps) {
         width={layout.totalWidth}
         height={layout.totalHeight}
         xmlns="http://www.w3.org/2000/svg"
-        style={{ position: "absolute", top: 0, left: 0, cursor: onClick ? "pointer" : undefined }}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          cursor: onClick ? "pointer" : undefined,
+        }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}

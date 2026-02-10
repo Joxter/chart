@@ -7,7 +7,7 @@ import {
   RangeChart,
   type TimeSeriesItem,
   type CategoricalSeriesItem,
-  type HighlightPeriod,
+  type Highlights,
 } from "./Chart";
 import { ExplorerTab } from "./ExplorerTab";
 
@@ -561,18 +561,16 @@ function tabStyle(active: boolean): React.CSSProperties {
 
 // --- Tab content components ---
 
-const sampleHighlightDates: HighlightPeriod[] = [
-  { date: new Date("2024-06-01") },
-  { date: new Date("2024-09-01") },
+const sampleHighlightDates: Highlights[] = [
+  {
+    date: new Date("2024-09-16T12:30:00"),
+    variant: "star-icon",
+    label: "Maximum 112.34",
+  },
   { date: new Date("2024-12-01") },
 ];
 
-const sampleHighlightRanges: HighlightPeriod[] = [
-  { from: new Date("2024-07-15"), to: new Date("2024-08-15") },
-  { from: new Date("2024-12-20"), to: new Date("2025-01-05") },
-];
-
-const sampleHighlightsMixed: HighlightPeriod[] = [
+const sampleHighlightsMixed: Highlights[] = [
   { date: new Date("2024-05-01") },
   { from: new Date("2024-06-15"), to: new Date("2024-07-15") },
   { date: new Date("2024-10-01") },
