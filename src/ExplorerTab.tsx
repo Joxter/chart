@@ -79,7 +79,7 @@ type ColumnOptions = {
 };
 
 const DEFAULT_COL_OPTIONS: ColumnOptions = {
-  midMarker: "none",
+  midMarker: "mean-circle",
   heatmapMode: "day",
 };
 
